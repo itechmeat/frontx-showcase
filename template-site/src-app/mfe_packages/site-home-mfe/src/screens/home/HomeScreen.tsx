@@ -1,6 +1,6 @@
 import type { ChildMfeBridge } from '@gears-frontx/react';
 import { OutlinePage } from '@site-shared/content/OutlinePage';
-import { parseOutline } from '@site-shared/content/outline';
+import { publishedOutline } from '@site-shared/content/sitePublishing';
 import { PageLoading } from '@site-shared/content/PageStates';
 import { logoImage } from '../../content/logos';
 import outlineJson from '../../content/outline.json';
@@ -11,8 +11,8 @@ import { useScreenTranslations } from '../../shared/useScreenTranslations';
 const languageModules = import.meta.glob('./i18n/*.json') as Record<string, () => Promise<{ default: Record<string, string> }>>;
 
 // @cpt-begin:cpt-template-site-flow-home-screen-open-landing:p1:inst-read-outline
-/** The home page's outline: one landing page whose entries are the home blocks, checked when the module loads. */
-const OUTLINE = parseOutline(outlineJson);
+/** The home page's outline: one landing page whose entries are the home blocks, pruned by the build's publishing choices and checked when the module loads. */
+const OUTLINE = publishedOutline(outlineJson);
 const HOME = OUTLINE.pages[0];
 // @cpt-end:cpt-template-site-flow-home-screen-open-landing:p1:inst-read-outline
 

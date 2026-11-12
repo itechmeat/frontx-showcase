@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { FRONTX_SHARED_PROPERTY_LANGUAGE } from '@gears-frontx/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMfeBridgeFixture } from '@frontx-test-utils/createMfeBridgeFixture';
 import { CATALOGUE_SCREEN_EXTENSION, SHOW_COMPONENT_ACTION, SHOW_GUIDE_ACTION, SHOW_TEMPLATE_ACTION, SITE_SCREEN_EXTENSIONS } from '@site-shared/navigation/siteScreens';
 import { chainOf, openChain } from '@site-shared/test-support/screenLinks';
@@ -149,5 +149,33 @@ describe('HomeScreen', () => {
     const band = screen.getByRole('heading', { level: 2, name: en['cta.title'] }).closest('section') as HTMLElement;
     expect(chainOf(fixture, within(band).getByRole('link', { name: new RegExp(en['cta.getStarted']) }))).toEqual(guide('get-started'));
     expect(within(band).getByRole('link', { name: new RegExp(en['cta.source']) }).getAttribute('href')).toBe('https://github.com/constructorfabric/gears-frontx');
+  });
+});
+
+describe('HomeScreen in a build that leaves the catalogue out and hides the logo strip', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('shows no UI kit section, no logo strip and no link to the catalogue; the architecture map keeps the kit as plain text', async () => {
+    vi.stubEnv('VITE_SITE_HIDDEN_SCREENS', JSON.stringify([CATALOGUE_SCREEN_EXTENSION]));
+    vi.stubEnv('VITE_SITE_HIDDEN_ENTRIES', JSON.stringify(['home-teams']));
+    vi.resetModules();
+    const { HomeScreen: PublishedHome } = await import('./HomeScreen');
+    const fixture = bridge();
+    render(<PublishedHome bridge={fixture} />);
+    await screen.findByRole('heading', { level: 1, name: en['hero.title'] });
+    expect(screen.queryByRole('heading', { level: 2, name: en['kit.title'] })).toBeNull();
+    expect(screen.queryByRole('heading', { level: 2, name: en['teams.title'] })).toBeNull();
+    expect(screen.queryByTestId('home-kit-button')).toBeNull();
+    // A link to another screen has no address; its chain names the screen it opens.
+    const chains = screen
+      .getAllByRole('link')
+      .filter((link) => !link.hasAttribute('href'))
+      .map((link) => JSON.stringify(chainOf(fixture, link)));
+    expect(chains.filter((chain) => chain.includes(CATALOGUE_SCREEN_EXTENSION))).toEqual([]);
+    const map = screen.getByRole('figure', { name: en['architecture.map'] });
+    expect(within(map).getByText(en['architecture.kit']).closest('a')).toBeNull();
   });
 });

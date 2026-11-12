@@ -119,7 +119,7 @@ Both flows start when the host mounts the `libs` screen at an address of the scr
 **Steps**:
 1. [x] - `p1` - Take a package's title and sentence from the screen's strings where they have them, else its short name and the description its own `package.json` carries - `inst-optional-strings`
 2. [x] - `p1` - **FOR EACH** package in the order of the ordering algorithm: a package of the PackageList block named by the package path and version, with its title and sentence - `inst-for-each-package`
-   1. [x] - `p1` - **IF** the package is the UI kit: an "Open UI Kit" link drawn with the kit's button recipe that opens the catalogue through a site link - `inst-open-kit`
+   1. [x] - `p1` - **IF** the package is the UI kit and the build publishes the catalogue screen: an "Open UI Kit" link drawn with the kit's button recipe that opens the catalogue through a site link - `inst-open-kit`
    2. [x] - `p1` - A "View source" link to the package's sources at the commit its version was published from - `inst-view-source`
    3. [x] - `p1` - The install command with the exact version, captioned "Install" and the package's title, with Copy - `inst-install-command`
 3. [x] - `p1` - **IF** the data lists shell workspace packages: **RETURN** them under a section heading with its title and lead, as a kit item list, each with its version and description and no install command - `inst-shell-packages`

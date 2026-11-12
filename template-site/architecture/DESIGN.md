@@ -337,7 +337,7 @@ The site's pages must be written once and rendered as a page and as plain text, 
 
 ##### Responsibility scope
 
-`shared/site/content/`: the outline types and their parser, text resolution with placeholders, the key list for string checks, page lookup and anchors, the twin path rule, the page renderer that renders each entry with its block or kit part in the frame the page's shape asks for, the binding of the file explorer, shell-command wrapping, the choice of brand art, and the page loading, error and not-found states as kit parts.
+`shared/site/content/`: the outline types and their parser, the site's publishing choices read from the build variables and the pruning of an outline by them (a link to a screen the site leaves out goes with what holds it, an entry the site hides goes; template-site-meta keeps a code-identical copy for the twins), text resolution with placeholders, the key list for string checks, page lookup and anchors, the twin path rule, the page renderer that renders each entry with its block or kit part in the frame the page's shape asks for, the binding of the file explorer, shell-command wrapping, the choice of brand art, and the page loading, error and not-found states as kit parts.
 
 ##### Responsibility boundaries
 

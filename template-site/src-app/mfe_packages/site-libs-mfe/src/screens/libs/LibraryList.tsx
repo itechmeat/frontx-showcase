@@ -5,6 +5,8 @@ import { PackageList } from '@gears-frontx/site-blocks/PackageList';
 import { SectionHeading } from '@gears-frontx/site-blocks/SectionHeading';
 import type { OutlineChrome } from '@site-shared/content/OutlinePage';
 import { SiteLink } from '@site-shared/navigation/SiteLink';
+import { isPublished } from '@site-shared/content/publish';
+import { SITE_PUBLISHING } from '@site-shared/content/sitePublishing';
 import { CATALOGUE_SCREEN_EXTENSION } from '@site-shared/navigation/siteScreens';
 import type { Library, ShellPackage } from '../../api/types';
 
@@ -64,7 +66,7 @@ export function LibraryList({ libraries, shellPackages, t, chrome, bridge }: Lib
             actions: (
               <>
                 {/* @cpt-begin:cpt-template-site-algo-libraries-screen-package-list:p1:inst-open-kit */}
-                {short === 'ui-kit' ? (
+                {short === 'ui-kit' && isPublished(SITE_PUBLISHING, CATALOGUE_SCREEN_EXTENSION) ? (
                   <SiteLink to={{ extension: CATALOGUE_SCREEN_EXTENSION }} bridge={bridge} className={buttonVariants({ variant: 'default' })}>
                     <ArrowRight aria-hidden size={16} />
                     {t('libraries.openKit')}

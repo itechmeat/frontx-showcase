@@ -1,5 +1,5 @@
 import { createRootRoute, createRoute } from '@gears-frontx/routing-tanstack';
-import { parseOutline } from '@site-shared/content/outline';
+import { publishedOutline } from '@site-shared/content/sitePublishing';
 import outlineJson from './content/outline.json';
 import { DocsLayout } from './screens/docs/DocsLayout';
 import { DocsPage } from './screens/docs/DocsPage';
@@ -7,7 +7,7 @@ import { NotFound } from './screens/docs/NotFound';
 
 /** The docs pages, checked against the content model when the module loads. */
 // @cpt-begin:cpt-template-site-flow-docs-screen-read-page:p1:inst-build-routes
-export const docsOutline = parseOutline(outlineJson);
+export const docsOutline = publishedOutline(outlineJson);
 // @cpt-end:cpt-template-site-flow-docs-screen-read-page:p1:inst-build-routes
 
 // @cpt-begin:cpt-template-site-flow-docs-screen-read-page:p1:inst-build-routes

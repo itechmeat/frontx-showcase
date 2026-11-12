@@ -84,3 +84,21 @@ describe('LibsPage', () => {
     expect(document.activeElement).toBe(heading);
   });
 });
+
+describe('LibsPage in a build that leaves the catalogue out', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('shows the UI kit card without its link to the catalogue', async () => {
+    vi.stubEnv('VITE_SITE_HIDDEN_SCREENS', JSON.stringify([CATALOGUE_SCREEN_EXTENSION]));
+    vi.resetModules();
+    const { renderLibsAt: renderPublished } = await import('../../test-support/renderAt');
+    renderPublished('/');
+    await screen.findByRole('heading', { level: 1, name: en['libraries.title'] });
+    expect(screen.getAllByRole('heading', { level: 2 })[0]?.textContent).toBe(en['libraries.pkg.ui-kit.title']);
+    expect(screen.queryByRole('link', { name: en['libraries.openKit'] })).toBeNull();
+  });
+});
+

@@ -80,7 +80,7 @@ Both flows start when the host mounts the `home` screen at an address of the scr
 2. [x] - `p1` - The page loads the screen's English strings for the host's language - `inst-load-strings`
 3. [x] - `p1` - **IF** the strings are still loading - `inst-if-loading`
    1. [x] - `p1` - **RETURN** the page loading state - `inst-return-loading`
-4. [x] - `p1` - The home outline is read and checked when the module loads: one landing page whose entries are hero, features, architecture map, change story, kit showcase, metric comparison, logo strip, get-started steps and closing call to action, in that order - `inst-read-outline`
+4. [x] - `p1` - The home outline is read, pruned by the build's publishing choices (`cpt-template-site-algo-content-model-prune-outline`) and checked when the module loads: one landing page whose entries are hero, features, architecture map, change story, kit showcase, metric comparison, logo strip, get-started steps and closing call to action, in that order; a site that leaves the catalogue out loses the kit showcase and the kit link of the map, and one that hides `home-teams` loses the logo strip - `inst-read-outline`
 5. [x] - `p1` - **RETURN** the landing page rendered from the outline by the content model's renderer, every link a site link, a link to another screen opening it through the screen domain and, for a page of it, the target's show action, every kit showcase tile showing the sample the sample registry draws for its key (`cpt-template-site-algo-home-screen-kit-sample`) and every logo of the logo strip drawn from the logo file the screen bundles for its name (`cpt-template-site-algo-home-screen-logo-image`) - `inst-render-outline`
 
 ### Open an Unknown Path

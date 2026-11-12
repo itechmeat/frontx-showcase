@@ -156,6 +156,8 @@ export function OutlinePage({ page, translate, vars, bridge, chrome, nav, twinHr
   const isExternal = (target: Href) => 'url' in target;
   /** The element a block or kit part renders a link as: the site link with its destination and no children. */
   const to = (target: Href, testId?: string): ReactElement => <SiteLink to={href(target)} bridge={bridge} data-testid={testId} />;
+  // A map node whose screen the site does not publish has no link: it keeps its place as plain text.
+  const nodeLink = (target: Href | undefined): ReactElement => (target ? to(target) : <span />);
   /** A text link with its arrow: out of the site for an external address, along the page otherwise. */
   const textLink = (item: OutlineLink, testId?: string) => (
     <Link key={item.label} render={to(item.href, testId)}>
@@ -417,10 +419,10 @@ export function OutlinePage({ page, translate, vars, bridge, chrome, nav, twinHr
             lead={text(entry.lead)}
             map={architectureArt({
               label: text(map.label),
-              kit: { title: text(map.kit.title), note: optional(map.kit.note), link: to(map.kit.href) },
-              rules: { title: text(map.rules.title), note: optional(map.rules.note), link: to(map.rules.href) },
-              shell: { title: text(map.shell.title), link: to(map.shell.href), templates: { label: text(map.shell.templates.label), link: to(map.shell.templates.href) } },
-              screens: map.screens.map((node) => ({ title: text(node.title), hint: text(node.hint), link: to(node.href) })),
+              kit: { title: text(map.kit.title), note: optional(map.kit.note), link: nodeLink(map.kit.href) },
+              rules: { title: text(map.rules.title), note: optional(map.rules.note), link: nodeLink(map.rules.href) },
+              shell: { title: text(map.shell.title), link: nodeLink(map.shell.href), templates: { label: text(map.shell.templates.label), link: to(map.shell.templates.href) } },
+              screens: map.screens.map((node) => ({ title: text(node.title), hint: text(node.hint), link: nodeLink(node.href) })),
               wires: { kit: text(map.wires.kit), rules: text(map.wires.rules) },
             })}
           />

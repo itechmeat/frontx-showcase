@@ -84,12 +84,14 @@ export function KeyFilesExplorer({ entry, text, to, chrome }: ExplorerProps) {
                 ))}
               </div>
             </CardContent>
-            <CardFooter>
-              <Link render={to(example.open.href, 'explorer-open-example')}>
-                {text(example.open.label)}
-                <ArrowUpRight aria-hidden />
-              </Link>
-            </CardFooter>
+            {example.open ? (
+              <CardFooter>
+                <Link render={to(example.open.href, 'explorer-open-example')}>
+                  {text(example.open.label)}
+                  <ArrowUpRight aria-hidden />
+                </Link>
+              </CardFooter>
+            ) : undefined}
           </Card>
         ) : undefined
       }

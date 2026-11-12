@@ -1,5 +1,5 @@
 import { createRootRoute, createRoute } from '@gears-frontx/routing-tanstack';
-import { parseOutline } from '@site-shared/content/outline';
+import { publishedOutline } from '@site-shared/content/sitePublishing';
 import outlineJson from './content/outline.json';
 import { LibsLayout } from './screens/libs/LibsLayout';
 import { LibsPage } from './screens/libs/LibsPage';
@@ -7,7 +7,7 @@ import { NotFound } from './screens/libs/NotFound';
 
 /** The libs pages, checked against the content model when the module loads. */
 // @cpt-begin:cpt-template-site-flow-libraries-screen-read-page:p1:inst-build-routes
-export const libsOutline = parseOutline(outlineJson);
+export const libsOutline = publishedOutline(outlineJson);
 // @cpt-end:cpt-template-site-flow-libraries-screen-read-page:p1:inst-build-routes
 
 // @cpt-begin:cpt-template-site-flow-libraries-screen-read-page:p1:inst-build-routes

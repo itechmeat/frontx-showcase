@@ -121,7 +121,8 @@ export interface Explorer {
   note?: Text;
   /** The license and notice links in the viewer's footer. */
   legal?: Link[];
-  example?: { title: Text; text: Text; screens: { title: Text; href: Href }[]; open: { label: Text; href: Href } };
+  /** Absent when none of its screens is published; `open` is absent when the screen it opens is not. */
+  example?: { title: Text; text: Text; screens: { title: Text; href: Href }[]; open?: { label: Text; href: Href } };
 }
 
 /** A numbered step of a guide; the renderer numbers the steps in page order. */
@@ -146,7 +147,8 @@ const FIGURES: readonly Figure[] = ['hub', 'riffle', 'turntable', 'rebuild', 'lo
 export interface MapNode {
   title: Text;
   note?: Text;
-  href: Href;
+  /** Absent when the node's screen is not published: the node stays as plain text. */
+  href?: Href;
 }
 
 /** One bar of a metric's chart: its label and its illustrative share (0 to 100); `featured` marks the FrontX bar. No figures are shown. */
@@ -386,7 +388,7 @@ function panelLink(value: unknown, at: string): PanelLink {
 // @cpt-begin:cpt-template-site-algo-content-model-parse-outline:p1:inst-read-entry
 function mapNode(value: unknown, at: string): MapNode {
   const node = obj(value, at);
-  return { title: str(node.title, `${at}.title`), note: optStr(node.note, `${at}.note`), href: href(node.href, `${at}.href`) };
+  return { title: str(node.title, `${at}.title`), note: optStr(node.note, `${at}.note`), href: node.href === undefined ? undefined : href(node.href, `${at}.href`) };
 }
 
 function explorer(raw: Json, at: string): Explorer {
@@ -404,15 +406,18 @@ function explorer(raw: Json, at: string): Explorer {
       const file = obj(entry, itemAt);
       return { path: str(file.path, `${itemAt}.path`), text: str(file.text, `${itemAt}.text`), lines: num(file.lines, `${itemAt}.lines`), contentBase64: str(file.contentBase64, `${itemAt}.contentBase64`), url: optStr(file.url, `${itemAt}.url`) };
     }),
-    example: example && {
-      title: str(example.title, `${at}.example.title`),
-      text: str(example.text, `${at}.example.text`),
-      screens: list(example.screens, `${at}.example.screens`, (entry, itemAt) => {
-        const screen = obj(entry, itemAt);
-        return { title: str(screen.title, `${itemAt}.title`), href: href(screen.href, `${itemAt}.href`) };
-      }),
-      open: link(example.open, `${at}.example.open`),
-    },
+    example:
+      example && example.screens !== undefined
+        ? {
+            title: str(example.title, `${at}.example.title`),
+            text: str(example.text, `${at}.example.text`),
+            screens: list(example.screens, `${at}.example.screens`, (entry, itemAt) => {
+              const screen = obj(entry, itemAt);
+              return { title: str(screen.title, `${itemAt}.title`), href: href(screen.href, `${itemAt}.href`) };
+            }),
+            open: example.open === undefined ? undefined : link(example.open, `${at}.example.open`),
+          }
+        : undefined,
   };
 }
 

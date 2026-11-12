@@ -13,6 +13,8 @@
   - [Read a Content Page](#read-a-content-page)
 - [3. Processes / Business Logic (CDSL)](#3-processes--business-logic-cdsl)
   - [Check an Outline](#check-an-outline)
+  - [Read the Publishing Choices](#read-the-publishing-choices)
+  - [Prune an Outline](#prune-an-outline)
   - [Resolve a Text](#resolve-a-text)
   - [List the String Keys of an Outline](#list-the-string-keys-of-an-outline)
   - [Find a Page and Its Headings](#find-a-page-and-its-headings)
@@ -41,7 +43,7 @@ The home, templates, docs and libraries pages exist once, as typed outlines: JSO
 
 ### 1.2 Purpose
 
-One source per content page lets the screen and its plain-text twin agree, and lets the screen's checks catch a missing string or an unfilled placeholder before a visitor does. Code: `shared/site/content/` (`outline.ts`, `OutlinePage.tsx`, `twins.ts`, `Explorer.tsx`, `wrapCommand.ts`, and `brandArt.tsx`, the one place that picks the brand art an entry's block shows), paths relative to `template-site/src-app/mfe_packages/`. The outlines of each screen, their strings and their data belong to the screen features; writing the twins belongs to template-site-meta's metadata tooling ([template-site-meta DESIGN](../../../../template-site-meta/architecture/DESIGN.md)).
+One source per content page lets the screen and its plain-text twin agree, and lets the screen's checks catch a missing string or an unfilled placeholder before a visitor does. Code: `shared/site/content/` (`outline.ts`, `publish.ts` and `sitePublishing.ts`, the publishing choices and the pruning, `OutlinePage.tsx`, `twins.ts`, `Explorer.tsx`, `wrapCommand.ts`, and `brandArt.tsx`, the one place that picks the brand art an entry's block shows), paths relative to `template-site/src-app/mfe_packages/`. The outlines of each screen, their strings and their data belong to the screen features; writing the twins belongs to template-site-meta's metadata tooling ([template-site-meta DESIGN](../../../../template-site-meta/architecture/DESIGN.md)).
 
 **Requirements**: `cpt-template-site-fr-outline-content`, `cpt-template-site-fr-twin-links`, `cpt-template-site-nfr-styling`, `cpt-template-site-nfr-semantics`
 
@@ -106,13 +108,43 @@ One source per content page lets the screen and its plain-text twin agree, and l
 
 **Steps**:
 1. [x] - `p1` - Check each field for its type (string, optional string, list, object, optional true or false) and fail with the field's path on a mismatch - `inst-check-types`
-2. [x] - `p1` - Read a link target as an external address, a heading anchor, another screen by its extension id with an optional show action (a type and a payload of strings), or a route inside the screen; fail on a screen named by its address token, on a route beside an extension, on a link naming more than one target and when it is none of them - `inst-read-link-target`
+2. [x] - `p1` - Read a link target (optional on a map node and on an example's open link, and an example without screens is left out, as a pruned outline leaves them) as an external address, a heading anchor, another screen by its extension id with an optional show action (a type and a payload of strings), or a route inside the screen; fail on a screen named by its address token, on a route beside an extension, on a link naming more than one target and when it is none of them - `inst-read-link-target`
 3. [x] - `p1` - Read the outline's screen token, strings file name and optional data file name - `inst-read-header`
 4. [x] - `p1` - **FOR EACH** page, read its route, title, lead, optional meta facts, back link and side panel title, and its entries - `inst-read-pages`
 5. [x] - `p1` - **FOR EACH** entry, read the fields of its type - `inst-read-entry`
    1. [x] - `p1` - **IF** the entry carries a drawing option (`layout`, `variant`, `tone`, `compact`, `ruled`, `numbered`, `prose`), names a figure the brand does not draw or a panel link kind the model does not know, fail - `inst-check-kinds`
    2. [x] - `p1` - **IF** the entry type is unknown, fail - `inst-unknown-type`
 6. [x] - `p1` - **RETURN** the checked outline - `inst-return-outline`
+
+### Read the Publishing Choices
+
+- [x] `p1` - **ID**: `cpt-template-site-algo-content-model-site-publishing`
+
+**Input**: The build variables: `VITE_SITE_HIDDEN_SCREENS` and `VITE_SITE_HIDDEN_ENTRIES`, each a JSON array of strings, which the site's production build sets from its site configuration.
+
+**Output**: The screens the site leaves out, by extension id, and the outline entries it hides, by id; nothing hidden when the variables are absent, as in development and the tests.
+
+**Steps**:
+1. [x] - `p1` - Read each variable as a JSON array of strings, an empty list when it is absent or empty; fail naming the variable when it is not such an array - `inst-read-list`
+2. [x] - `p1` - **RETURN** the hidden screens and the hidden entries - `inst-return-publishing`
+3. [x] - `p1` - Read the choices once, from the build variables the bundle was built with - `inst-build-choices`
+4. [x] - `p1` - A screen is published unless its extension id is hidden - `inst-is-published`
+
+### Prune an Outline
+
+- [x] `p1` - **ID**: `cpt-template-site-algo-content-model-prune-outline`
+
+**Input**: The parsed JSON of an outline file and the publishing choices.
+
+**Output**: The outline as a published page shows it, checked by the model. template-site-meta keeps a code-identical copy of the rule for the plain-text twins, so a twin shows what its page shows.
+
+**Steps**:
+1. [x] - `p1` - Name the publishing choices and the mark of a value that goes - `inst-publishing-types`
+2. [x] - `p1` - Prune a value: a list keeps the items that do not go and goes itself when pruning empties it; in an object, a link target that names a hidden screen takes the object with it when the object is a list item or a labelled link, and only the link target otherwise (a map node or a source line stays as plain text); a property that goes takes a list item with it and is dropped from any other object - `inst-prune-value`
+3. [x] - `p1` - **IF** the outline has no pages or nothing is hidden, **RETURN** it as it is - `inst-if-nothing-hidden`
+4. [x] - `p1` - **FOR EACH** page, keep it with its entries list: drop the entries whose id is hidden, prune the others as list items, and drop a back link that names a hidden screen - `inst-foreach-page`
+5. [x] - `p1` - **RETURN** the outline with the pruned pages - `inst-return-pruned`
+6. [x] - `p1` - A screen reads its outline pruned by the build's choices, then checked - `inst-parse-pruned`
 
 ### Resolve a Text
 
@@ -211,7 +243,7 @@ One source per content page lets the screen and its plain-text twin agree, and l
    1. [x] - `p2` - The source line: its label and the pinned commit or this repository's name - `inst-render-source`
    2. [x] - `p2` - The scope line: what the list is, and the link to the whole source when the template has one - `inst-render-scope`
    3. [x] - `p2` - The note on every file and the license and notice links - `inst-render-note-legal`
-   4. [x] - `p2` - The Example tab when the entry has an example: a kit card whose screen badges and open link open the screens through site links - `inst-render-example`
+   4. [x] - `p2` - The Example tab when the entry has an example: a kit card whose screen badges and open link, when it has one, open the screens through site links - `inst-render-example`
 
 ## 4. States (CDSL)
 
@@ -225,9 +257,11 @@ Not applicable. The content model checks, resolves and renders outlines that do 
 
 - [x] `p1` - **ID**: `cpt-template-site-dod-content-model-checked-outlines`
 
-The system **MUST** check every outline against the model and fail with the path of the first field that does not fit, resolve each text from the screen's strings or as a literal with its placeholders filled from the screen's data, and list the string keys an outline uses so that the screen's outline test can hold the strings file to it.
+The system **MUST** prune every outline by the build's publishing choices before checking it, so a published page shows no link to a screen the site leaves out and no entry it hides, check every outline against the model and fail with the path of the first field that does not fit, resolve each text from the screen's strings or as a literal with its placeholders filled from the screen's data, and list the string keys an outline uses so that the screen's outline test can hold the strings file to it.
 
 **Implements**:
+- `cpt-template-site-algo-content-model-site-publishing`
+- `cpt-template-site-algo-content-model-prune-outline`
 - `cpt-template-site-algo-content-model-parse-outline`
 - `cpt-template-site-algo-content-model-resolve-text`
 - `cpt-template-site-algo-content-model-outline-keys`
@@ -237,7 +271,7 @@ The system **MUST** check every outline against the model and fail with the path
 - DB: none
 - Entities: `Outline`, `Page`, `Entry`, `Text`
 
-**Tests**: `site-docs-mfe/src/content/outline.test.ts` ("names a strings key that exists for every text it reads from the strings", "fills every placeholder of every text and command from the version data and the page address", "opens the get-started page with its starting points and link line across the whole column, the rest beside the rail", "reads each arrangement as its own entry type, with no drawing options", "refuses an unknown entry type, a retired drawing option and a figure the brand does not draw, naming the field", "reads a link to another screen as its extension id and an optional typed action, and refuses a screen named by its address token, a route beside an extension and a link with two targets"); `site-home-mfe/src/content/outline.test.ts` ("is one landing page whose entries are the home blocks, in the order of the page", "names only logo files the screen supplies", "names only samples the screen registry draws"); `site-libs-mfe/src/content/outline.test.ts` and `site-templates-mfe/src/content/outline.test.ts` (the string-key cases).
+**Tests**: `site-docs-mfe/src/content/outline.test.ts` ("names a strings key that exists for every text it reads from the strings", "fills every placeholder of every text and command from the version data and the page address", "opens the get-started page with its starting points and link line across the whole column, the rest beside the rail", "reads each arrangement as its own entry type, with no drawing options", "refuses an unknown entry type, a retired drawing option and a figure the brand does not draw, naming the field", "reads a link to another screen as its extension id and an optional typed action, and refuses a screen named by its address token, a route beside an extension and a link with two targets"); `site-home-mfe/src/content/outline.test.ts` ("is one landing page whose entries are the home blocks, in the order of the page", "names only logo files the screen supplies", "names only samples the screen registry draws", "still parses, in every outline of the template, with every screen but those of the template left out and the logo strip hidden, and links none of the screens left out"); `site-home-mfe/src/screens/home/HomeScreen.test.tsx` ("shows no UI kit section, no logo strip and no link to the catalogue; the architecture map keeps the kit as plain text"); `site-libs-mfe/src/screens/libs/LibsPage.test.tsx` ("shows the UI kit card without its link to the catalogue"); `scripts/publish-prune.test.mjs` of the site repository (the two copies of the rule agree, and the build variables are read); `site-libs-mfe/src/content/outline.test.ts` and `site-templates-mfe/src/content/outline.test.ts` (the string-key cases).
 
 ### One Renderer for Every Content Page
 
@@ -301,5 +335,6 @@ The system **MUST** show a template's key files from the Base64 content the gene
 - [x] A guide's side panel lists only its numbered steps.
 - [x] A template page shows each key file's decoded content.
 - [x] The home page is an outline of home entries, each rendering its home block.
+- [x] A build that leaves screens out and hides entries shows no link to those screens and none of those entries on any page of the template: the home page loses the UI kit section and the logo strip and keeps the kit of its architecture map as plain text, the libraries page keeps the UI kit card without its catalogue link, and every pruned outline still passes the model. Without the build variables nothing is hidden.
 
 Not applicable to this feature, with reasons: security (public, read-only pages with no visitor input beyond links), performance (key file decoding is memoized per file list), operations and data persistence (no runtime state or storage).
