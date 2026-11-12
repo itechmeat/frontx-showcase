@@ -1,0 +1,79 @@
+name: Deploy site to GitHub Pages
+
+# The production site: every push to main builds site/dist for https://frontx.cfabric.org, checks that the build is indexable on that origin, and deploys it to GitHub Pages (the repository's Pages source is "GitHub Actions"; the custom domain is set in the Pages settings). A manual run redeploys the chosen ref; re-running an earlier green run puts its build back.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a deployment that started is never cancelled halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SITE_ORIGIN: https://frontx.cfabric.org
+      SITE_INDEXING: 'on'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      with:
+        persist-credentials: false
+
+    - name: Setup Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      with:
+        node-version: 24.14.x
+        cache: npm
+        cache-dependency-path: |
+          package-lock.json
+          site/package-lock.json
+
+    - name: Install npm 10.9.4
+      run: |
+        npm install -g npm@10.9.4
+        test "$(npm --version)" = "10.9.4"
+
+    - name: Install repository tooling
+      run: npm ci
+
+    - name: Compose and install the site
+      run: npm run setup
+
+    - name: Build the site
+      run: npm run build
+
+    # The canonical address of the document sits on the production origin, robots.txt allows crawling and names the sitemap, and the sitemap lists pages.
+    - name: Check the build is indexable on its origin
+      run: node scripts/indexing-check.mjs indexed "$SITE_ORIGIN"
+
+    - name: Configure Pages
+      uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+    - name: Upload the Pages artifact
+      uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+      with:
+        path: site/dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

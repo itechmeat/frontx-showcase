@@ -142,7 +142,7 @@ The demo and example applications of FrontX come from several places and are sha
 
 - Server-side rendering and any server process.
 - Changes to gears-frontx, gears-frontx-templates or any open PR (the gaps found are reported, not fixed here; the shell rebuild reaches template-shell through the owner).
-- Hosting, domain, deployment and publishing of the repository.
+- The hosting's own setup: the domain and its DNS, and the repository's GitHub Pages, app and variable settings. The repository builds and publishes the site and its pull request previews to GitHub Pages (DESIGN section 3.8).
 - A ui-kit contracts page (needs contract artifacts the published package does not ship).
 - The telemetry package's demo in gears-frontx (a public-API consumer check of that package).
 - Any company- or vendor-specific content beyond the Constructor Fabric brand rule of `cpt-site-nfr-content-rules`.
@@ -274,7 +274,7 @@ Screen code **MUST** be committed only inside its template; the site's copy **MU
 
 The production build **MUST** be one self-contained static output that holds the host and every screen package, **MUST** work unchanged when served from the root of an origin or from any sub-path of it, and **MUST NOT** depend on an origin or path fixed at build time for loading screens or for links between pages; only the canonical addresses name the configured origin.
 
-**Rationale**: Hosting is not chosen yet; a build that works at any mount point can be published anywhere without rebuilding.
+**Rationale**: The same build serves the production site at the root of its origin and a pull request preview under a sub-path; a build that works at any mount point is published anywhere without rebuilding.
 
 **Actors**: `cpt-site-actor-visitor`, `cpt-site-actor-site-developer`
 
@@ -345,7 +345,7 @@ Every page **MUST** have exactly one top-level heading, headed sections and link
 ### 6.2 NFR Exclusions
 
 - Performance budgets: no budget beyond what the shell ships; the site is static.
-- Availability and recovery: hosting is out of scope.
+- Availability and recovery: GitHub Pages serves the site; a broken deployment is replaced by re-running an earlier one (README, "GitHub Pages and pull request previews").
 - Authentication and authorization: not applicable because the site has no accounts and no protected resource; every page is public and read-only, and the inbox demo's writes change only sample data inside the visitor's browser.
 - Privacy, data retention and audit: not applicable because the site collects, stores and sends no visitor data; it has no analytics and no server.
 - Internationalization beyond one language: the site ships English only; the language selector appears once the whole site ships a second language.

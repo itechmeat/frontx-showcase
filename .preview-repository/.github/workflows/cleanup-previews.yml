@@ -1,0 +1,68 @@
+name: Clean up old previews
+
+# Runs in the preview repository. Removes every pr-<N>/ whose last commit is older than the retention period: vars.PREVIEW_RETENTION_DAYS, 7 days by default, or the days a manual run names. frontx-showcase's "Preview remove" already removes a preview when its pull request closes; this catches what that missed and previews of pull requests left open without new builds.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: "Remove previews older than this many days (empty: PREVIEW_RETENTION_DAYS, else 7)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleanup-previews
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Remove stale previews
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      INPUT_DAYS: ${{ inputs.retention_days }}
+      VARIABLE_DAYS: ${{ vars.PREVIEW_RETENTION_DAYS }}
+    steps:
+    # Full commit history, to date each preview, but no file contents and only the top-level files in the working tree.
+    - name: Checkout the preview repository
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      with:
+        fetch-depth: 0
+        filter: blob:none
+        sparse-checkout: |
+          /*
+          !/*/
+        sparse-checkout-cone-mode: false
+
+    - name: Remove the stale previews
+      run: |
+        set -euo pipefail
+        days="${INPUT_DAYS:-${VARIABLE_DAYS:-7}}"
+        if ! printf '%s' "$days" | grep -Eq '^[1-9][0-9]*$'; then echo "::error::the retention must be a positive number of days, not '$days'"; exit 1; fi
+        cutoff="$(date -u -d "$days days ago" +%s)"
+        echo "Removing previews last changed before $(date -u -d "@$cutoff" '+%Y-%m-%d %H:%M UTC') ($days days)"
+        git config user.name frontx-showcase-preview-bot
+        git config user.email preview-bot@frontx-showcase.invalid
+        removed=()
+        for dir in $(git ls-tree -d --name-only HEAD | grep -E '^pr-[1-9][0-9]*$' || true); do
+          changed="$(git log -1 --format=%ct -- "$dir")"
+          if [ -n "$changed" ] && [ "$changed" -lt "$cutoff" ]; then
+            git rm -r -q --sparse "$dir"
+            removed+=("$dir")
+          fi
+        done
+        if [ "${#removed[@]}" -eq 0 ]; then echo "No preview is older than $days days"; exit 0; fi
+        git commit -q -m "Remove previews older than $days days: ${removed[*]}"
+        branch="$(git symbolic-ref --short HEAD)"
+        for attempt in 1 2 3; do
+          if git push origin "HEAD:$branch"; then echo "removed ${removed[*]}"; exit 0; fi
+          echo "push attempt $attempt was refused; rebasing on $branch"
+          git pull --rebase origin "$branch"
+        done
+        echo "::error::could not push the removal after 3 attempts"
+        exit 1

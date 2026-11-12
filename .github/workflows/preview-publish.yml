@@ -1,0 +1,150 @@
+name: Preview publish
+
+# Publishes the artifact of a successful "Preview build" run of a pull request into the preview repository (vars.PREVIEW_REPOSITORY, constructorfabric/frontx-showcase-previews by default) as pr-<N>/, served by its GitHub Pages at https://<owner>.github.io/<name>/pr-<N>/, and keeps one comment on the pull request that names it.
+# Security: this run never checks out code and executes nothing from the artifact; the artifact is files only. The pull request number comes from preview-meta.json in the artifact (workflow_run.pull_requests is empty for a fork) and is checked as a positive integer, the head commit is checked against the run's. Every ${{ }} value reaches a script through env. The preview repository is written with a GitHub App installation token (vars.AUTOMATION_APP_ID, secrets.AUTOMATION_APP_PRIVATE_KEY); without the app the run ends green and says so.
+on:
+  workflow_run:
+    workflows: [ "Preview build" ]
+    types: [ completed ]
+
+permissions:
+  actions: read
+  contents: read
+
+# One publication at a time: two pull requests pushing to the preview repository at once would race.
+concurrency:
+  group: preview-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ID: ${{ vars.AUTOMATION_APP_ID }}
+      PREVIEW_REPOSITORY: ${{ vars.PREVIEW_REPOSITORY }}
+      PREVIEW_RETENTION_DAYS: ${{ vars.PREVIEW_RETENTION_DAYS }}
+      RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      REPOSITORY: ${{ github.repository }}
+      REPOSITORY_OWNER: ${{ github.repository_owner }}
+      REPOSITORY_NAME: ${{ github.event.repository.name }}
+    steps:
+    - name: Check the configuration
+      id: config
+      run: |
+        set -euo pipefail
+        if [ -z "$APP_ID" ]; then
+          echo "Preview publishing is not configured: AUTOMATION_APP_ID is not set" >> "$GITHUB_STEP_SUMMARY"
+          echo "configured=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        repository="${PREVIEW_REPOSITORY:-constructorfabric/frontx-showcase-previews}"
+        if ! printf '%s' "$repository" | grep -Eq '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$'; then echo "::error::PREVIEW_REPOSITORY must be owner/name, not '$repository'"; exit 1; fi
+        owner="${repository%%/*}"
+        name="${repository#*/}"
+        # One installation token serves both repositories, so they share an owner.
+        if [ "$owner" != "$REPOSITORY_OWNER" ]; then echo "::error::PREVIEW_REPOSITORY must belong to $REPOSITORY_OWNER, not $owner"; exit 1; fi
+        retention="${PREVIEW_RETENTION_DAYS:-7}"
+        if ! printf '%s' "$retention" | grep -Eq '^[1-9][0-9]*$'; then echo "::error::PREVIEW_RETENTION_DAYS must be a positive integer, not '$retention'"; exit 1; fi
+        {
+          echo "configured=true"
+          echo "repository=$repository"
+          echo "owner=$owner"
+          echo "name=$name"
+          echo "retention=$retention"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Download the preview artifact
+      if: steps.config.outputs.configured == 'true'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: site-preview
+        path: preview
+        run-id: ${{ github.event.workflow_run.id }}
+        github-token: ${{ github.token }}
+
+    - name: Read the pull request
+      if: steps.config.outputs.configured == 'true'
+      id: pr
+      run: |
+        set -euo pipefail
+        meta=preview/preview-meta.json
+        if [ ! -f "$meta" ] || [ -L "$meta" ]; then echo "::error::the artifact has no preview-meta.json"; exit 1; fi
+        number="$(jq -r '.pr_number | tostring' "$meta")"
+        sha="$(jq -r '.head_sha | tostring' "$meta")"
+        if ! printf '%s' "$number" | grep -Eq '^[1-9][0-9]{0,9}$'; then echo "::error::pr_number must be a positive integer, not '$number'"; exit 1; fi
+        if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || [ "$sha" != "$RUN_HEAD_SHA" ]; then echo "::error::head_sha '$sha' is not the head commit of the build run ($RUN_HEAD_SHA)"; exit 1; fi
+        rm "$meta"
+        echo "number=$number" >> "$GITHUB_OUTPUT"
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+    - name: Create the app token
+      if: steps.config.outputs.configured == 'true'
+      id: token
+      uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      with:
+        app-id: ${{ vars.AUTOMATION_APP_ID }}
+        private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+        owner: ${{ steps.config.outputs.owner }}
+        repositories: ${{ steps.config.outputs.name }},${{ github.event.repository.name }}
+
+    - name: Publish pr-<N>/ to the preview repository
+      if: steps.config.outputs.configured == 'true'
+      env:
+        GH_TOKEN: ${{ steps.token.outputs.token }}
+        TARGET: ${{ steps.config.outputs.repository }}
+        PR_NUMBER: ${{ steps.pr.outputs.number }}
+        HEAD_SHA: ${{ steps.pr.outputs.sha }}
+      run: |
+        set -euo pipefail
+        auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+        echo "::add-mask::$auth"
+        git_auth() { git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" "$@"; }
+        # Only pr-<N>/ and the top-level files are checked out: the other previews stay on the server.
+        git_auth clone --filter=blob:none --sparse --depth 50 "https://github.com/$TARGET.git" previews
+        cd previews
+        git sparse-checkout set "pr-$PR_NUMBER"
+        git config user.name frontx-showcase-preview-bot
+        git config user.email preview-bot@frontx-showcase.invalid
+        branch="$(git symbolic-ref --short HEAD)"
+        rm -rf "pr-$PR_NUMBER"
+        mkdir "pr-$PR_NUMBER"
+        cp -R ../preview/. "pr-$PR_NUMBER/"
+        git add -A "pr-$PR_NUMBER"
+        if git diff --cached --quiet; then echo "pr-$PR_NUMBER/ is already this build"; exit 0; fi
+        git commit -q -m "Preview of $REPOSITORY#$PR_NUMBER at $HEAD_SHA"
+        for attempt in 1 2 3; do
+          if git_auth push origin "HEAD:$branch"; then echo "published pr-$PR_NUMBER/"; exit 0; fi
+          echo "push attempt $attempt was refused; rebasing on $branch"
+          git_auth pull --rebase origin "$branch"
+        done
+        echo "::error::could not push pr-$PR_NUMBER/ after 3 attempts"
+        exit 1
+
+    # One comment per pull request, found by its hidden marker among the app's own comments and updated on every push. The REST API posts to the base repository's issue thread, which works for a pull request from a fork too.
+    - name: Comment the preview address on the pull request
+      if: steps.config.outputs.configured == 'true'
+      env:
+        GH_TOKEN: ${{ steps.token.outputs.token }}
+        APP_SLUG: ${{ steps.token.outputs.app-slug }}
+        PR_NUMBER: ${{ steps.pr.outputs.number }}
+        HEAD_SHA: ${{ steps.pr.outputs.sha }}
+        OWNER: ${{ steps.config.outputs.owner }}
+        NAME: ${{ steps.config.outputs.name }}
+        RETENTION: ${{ steps.config.outputs.retention }}
+      run: |
+        set -euo pipefail
+        marker='<!-- frontx-showcase-preview -->'
+        url="https://$OWNER.github.io/$NAME/pr-$PR_NUMBER/"
+        body="$(printf '%s\n**Preview:** %s\n\nBuilt from %s. Pages may take a few minutes to serve a new build. The preview is not indexed; it is removed when this pull request closes, or after %s days without a new build.' "$marker" "$url" "$HEAD_SHA" "$RETENTION")"
+        bot="${APP_SLUG}[bot]"
+        existing="$(gh api --paginate "/repos/$REPOSITORY/issues/$PR_NUMBER/comments" --jq ".[] | select(.user.login == \"$bot\" and (.body | contains(\"$marker\"))) | .id" | sed -n 1p)"
+        if [ -n "$existing" ]; then
+          gh api --method PATCH "/repos/$REPOSITORY/issues/comments/$existing" -f body="$body" > /dev/null
+          echo "updated comment $existing"
+        else
+          gh api --method POST "/repos/$REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null
+          echo "posted a comment"
+        fi

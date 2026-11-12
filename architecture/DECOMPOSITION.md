@@ -334,7 +334,7 @@ The root DESIGN has no database (section 3.7), so no feature covers a data entit
 - **Out of scope**:
   - The generator, its outputs, head-sync and the metadata check ([template-site-meta DESIGN](../template-site-meta/architecture/DESIGN.md)).
   - The failure store and the error state (shell layout and navigation).
-  - The hosting target and edge head injection (deferred, DESIGN section 4.11).
+  - Edge head injection (deferred, DESIGN section 4.11).
 
 - **Requirements Covered**:
 

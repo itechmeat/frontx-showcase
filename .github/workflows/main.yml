@@ -19,7 +19,7 @@ jobs:
       matrix:
         node-version: [24.14.x, 25.x]
     env:
-      # The production origin is not decided yet (architecture/DESIGN.md section 4.11); CI builds against a local preview origin.
+      # CI builds against the local preview origin; the production build for https://frontx.cfabric.org is the one pages.yml deploys.
       SITE_ORIGIN: http://localhost:4173
     steps:
     - name: Checkout code

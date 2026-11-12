@@ -1,0 +1,69 @@
+name: Preview build
+
+# The build of a pull request for its preview: site/dist built for the preview's address under constructorfabric.github.io/frontx-showcase-previews/pr-<N>/ with indexing off, checked to be unindexable, and uploaded as the artifact site-preview with the pull request's number and head commit in preview-meta.json. It runs with read access only and no secrets; "Preview publish" publishes the artifact from a separate, privileged run that executes nothing from it.
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      SITE_INDEXING: 'off'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      with:
+        persist-credentials: false
+
+    - name: Setup Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      with:
+        node-version: 24.14.x
+        cache: npm
+        cache-dependency-path: |
+          package-lock.json
+          site/package-lock.json
+
+    - name: Install npm 10.9.4
+      run: |
+        npm install -g npm@10.9.4
+        test "$(npm --version)" = "10.9.4"
+
+    - name: Install repository tooling
+      run: npm ci
+
+    - name: Compose and install the site
+      run: npm run setup
+
+    - name: Build the site for its preview address
+      run: |
+        if ! printf '%s' "$PR_NUMBER" | grep -Eq '^[1-9][0-9]*$'; then echo "::error::pull request number '$PR_NUMBER' is not a positive integer"; exit 1; fi
+        SITE_ORIGIN="https://constructorfabric.github.io/frontx-showcase-previews/pr-$PR_NUMBER" npm run build
+
+    # Every HTML file and every page of the document's page map is noindex, robots.txt disallows every path, the sitemap lists no address and no llms.txt is published.
+    - name: Check no page may be indexed
+      run: node scripts/indexing-check.mjs unindexed
+
+    - name: Record the pull request
+      run: |
+        jq -n --argjson pr "$PR_NUMBER" --arg sha "$HEAD_SHA" '{ pr_number: $pr, head_sha: $sha }' > site/dist/preview-meta.json
+
+    - name: Upload the preview artifact
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: site-preview
+        path: site/dist
+        retention-days: 7
+        if-no-files-found: error

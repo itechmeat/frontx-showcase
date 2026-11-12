@@ -52,7 +52,8 @@ Screens are addressed in the query string: `/?screen=<token>[;route=<path inside
 | `npm run shell:changes` | List the site's changes to the files of the applied official templates; `-- --check` compares them and the long-dash adaptation with the pristine templates; `-- --adapt` writes the adaptation after a template upgrade |
 | `npm run dev` | Build the MFE packages, serve them and start the host, which also serves the pages' plain-text twins |
 | `npm run dev:smoke` | Run `npm run dev` until the host and every remote entry answer, then stop it |
-| `npm run build` | Assemble, build the site, lay the MFE remotes out in `site/dist/mfe/` (`npm run site:dist`; the result works from any static server, at the root or under a sub-path), generate the SEO outputs, the web manifest and the plain-text twins; needs `origin` in `site.config.json`, or `SITE_ORIGIN` for a local preview (`SITE_ORIGIN=http://localhost:4173 npm run build`) |
+| `npm run build` | Assemble, build the site, lay the MFE remotes out in `site/dist/mfe/` (`npm run site:dist`; the result works from any static server, at the root or under a sub-path), generate the SEO outputs, the web manifest and the plain-text twins, then check that no unpublished screen is left (`npm run site:publish-check`); builds for `origin` in `site.config.json` (https://frontx.cfabric.org), or for `SITE_ORIGIN` (`SITE_ORIGIN=http://localhost:4173 npm run build` for a local preview); `SITE_INDEXING=off` builds a copy no page of which may be indexed |
+| `npm run site:publish-check` | After the build: fail when `site/dist` still carries a screen `unpublishedScreens` leaves out, a remote, a registration, an address or a link of it |
 | `npm run seo:check` | Page metadata rules, and that the generated outputs in `site/dist/` match the sources |
 | `npm run type-check`, `npm run lint`, `npm run test:unit`, `npm run arch:deps` | Checks over the tooling and the site |
 | `npm run templates:validate` | `frontx validate` and the uniform-shape rules for every template |
@@ -64,6 +65,47 @@ Screens are addressed in the query string: `/?screen=<token>[;route=<path inside
 | `npm start` | Install the site when it has no finished install from its current lockfile (`npm run setup`), build it when `site/dist` is not fresh: missing, built for another origin, or older than an input, a template, `site.config.json`, the root manifest, lockfile, scripts or assets, or a file of `site/`, added, changed or deleted (`npm run build`); then serve `site/dist` from Node on `$PORT` (8080 by default) and `$SERVE_HOST` (`0.0.0.0` by default; not `HOST`, which shells set to the hostname) with the headers, cache policy and content types of the image's server, uncompressed (`scripts/start.mjs`, `scripts/serve-dist.mjs`); `npm start -- --no-build` or `START_SKIP_BUILD=1` serves only |
 
 See `CONTRIBUTING.md` for the development loop and `architecture/DESIGN.md` for the design.
+
+## What the build publishes
+
+`site.config.json` decides which screens the production build publishes. `unpublishedScreens` lists, by route token, the screens it leaves out: they have no remote in `site/dist/mfe/`, no registration in `generated-mfe-manifests.json`, no menu entry, no page in `sitemap.xml`, `llms.txt`, `seo-manifest.json` or the page map of `index.html`, and no plain-text twin, and no published page keeps a link to them (the home page drops its UI kit section, the libraries page its "Open UI Kit" link, the docs and templates pages their links to the catalogue and the demos). `hiddenEntries` lists outline entries the published pages do not show; this site hides the home page's "Teams using FrontX" logo strip (`home-teams`). Remove a token from the list, or the whole key, to publish the screen again; without the keys everything is published. `npm run dev`, the unit tests and `npm run verify:ui` always see every screen: only `npm run build` leaves screens out. `architecture/DESIGN.md` section 4.15 has the details.
+
+## GitHub Pages and pull request previews
+
+GitHub Pages serves the site at https://frontx.cfabric.org, and every pull request gets a preview at `https://constructorfabric.github.io/frontx-showcase-previews/pr-<number>/` that no search engine may index.
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `pages.yml`, "Deploy site to GitHub Pages" | push to `main`, manual run | builds `site/dist` with `SITE_ORIGIN=https://frontx.cfabric.org` and `SITE_INDEXING=on`, checks it is indexable on that origin (`node scripts/indexing-check.mjs indexed <origin>`) and deploys it to the `github-pages` environment; one deployment at a time, never cancelled halfway |
+| `preview-build.yml`, "Preview build" | pull request to `main` | builds the pull request for its preview address with `SITE_INDEXING=off`, read-only and without secrets, checks that no page may be indexed (`node scripts/indexing-check.mjs unindexed`) and uploads the artifact `site-preview` for 7 days with `preview-meta.json` (number and head commit) |
+| `preview-publish.yml`, "Preview publish" | a successful "Preview build" of a pull request | without checking out or executing anything of the pull request, writes the artifact into the preview repository as `pr-<number>/` with the GitHub App's token and keeps one comment on the pull request with the address, the commit and the retention |
+| `preview-remove.yml`, "Preview remove" | pull request closed | removes `pr-<number>/` from the preview repository, taking only the pull request's number from the event |
+
+The preview repository `constructorfabric/frontx-showcase-previews` serves its `main` through Pages. Its starter files are in `.preview-repository/`: `.nojekyll` (required: Jekyll drops the build's files whose names start with `_`), a placeholder `index.html` with `noindex, nofollow`, a README, and `.github/workflows/cleanup-previews.yml`, which removes every day the previews older than `PREVIEW_RETENTION_DAYS`. They are copied there by hand once, before the first preview.
+
+Who sets what:
+
+| Setting | Where | Who |
+|---|---|---|
+| Pages source "GitHub Actions", the custom domain `frontx.cfabric.org`, "Enforce HTTPS" once the certificate is issued | this repository, Settings, Pages | a repository admin |
+| The GitHub App: installed on `frontx-showcase` and `frontx-showcase-previews` with Contents read and write on the preview repository, Issues or Pull requests read and write on this repository (the comment), and Metadata read | the organization's settings | an organization admin |
+| `AUTOMATION_APP_ID` (variable) and `AUTOMATION_APP_PRIVATE_KEY` (secret) of that app | this repository's Actions settings, or the organization's with access for this repository | an organization admin |
+| `PREVIEW_REPOSITORY` (`owner/name`, `constructorfabric/frontx-showcase-previews` when unset; it must belong to the same owner, and another name also needs the address in `preview-build.yml`) and `PREVIEW_RETENTION_DAYS` (7 when unset) | Actions variables of this repository; `PREVIEW_RETENTION_DAYS` also in the preview repository, for its cleanup | a repository admin |
+
+Until `AUTOMATION_APP_ID` is set, "Preview publish" and "Preview remove" end green with the summary line `Preview publishing is not configured: AUTOMATION_APP_ID is not set` and do nothing else; "Preview build" still builds and checks every pull request.
+
+Switching the production site to the workflow:
+
+1. The pull request that brings these workflows is green and reviewed.
+2. Right before merging it, a repository admin switches the Pages source from the branch to "GitHub Actions" (Settings, Pages, Build and deployment, Source; or `gh api -X PUT repos/constructorfabric/frontx-showcase/pages -f build_type=workflow`). The custom domain stays in the settings.
+3. Merge at once: the push to `main` runs "Deploy site to GitHub Pages", and the site is on the domain a few minutes later. What Pages serves between the switch and the first deployment of the workflow is not verified, so keep that gap short.
+4. Check `https://frontx.cfabric.org/`, a few deep links (`/?screen=docs;route=get-started`), `robots.txt` and `sitemap.xml`, then enable "Enforce HTTPS" when the certificate is ready.
+
+Rollback:
+
+- A broken deployment: in Actions, re-run the last green run of "Deploy site to GitHub Pages", or run the workflow by hand on an earlier commit; Pages serves that build again.
+- Back to serving the branch: switch the Pages source back to "Deploy from a branch", `main`, `/` (`gh api -X PUT repos/constructorfabric/frontx-showcase/pages -f build_type=legacy -f 'source[branch]=main' -f 'source[path]=/'`); the domain stays, and the `CNAME` file at the root of `main` holds it for the branch build. Then revert the pull request.
+- Previews never touch the production site; a broken preview is replaced by the next push or removed with its `pr-<number>/` folder.
 
 ## Deploy
 
