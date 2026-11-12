@@ -8,8 +8,9 @@ import { build } from 'esbuild';
 import { isPattern, type SiteMetaMap } from './page-map.ts';
 import { renderIndexHtml, renderLlms, renderRobots, renderSeoManifest, renderSitemap, renderWebManifest, SITE_ASSETS, type PackageLlms } from './outputs.ts';
 import { checkRasters } from './rasters.ts';
-import { readOutlines, renderTwins } from './twins.ts';
-import { buildPageMap, readJson, readScreenDomain, readScreenExtensions, resolveOrigin, staticPages, type ScreenExtension, type SiteConfig, type SitePaths } from './site.ts';
+import { pruneOutline, type Publishing } from './publish.ts';
+import { readOutlines, renderTwins, type ScreenOutline } from './twins.ts';
+import { buildPageMap, publishedScreens, readJson, readScreenDomain, readScreenExtensions, resolveIndexing, resolveOrigin, screenToken, staticPages, type Indexing, type ScreenExtension, type SiteConfig, type SitePaths } from './site.ts';
 
 // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-routing-version:p1:inst-tool-dir
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,11 @@ export function checkConfig(config: SiteConfig): string[] {
   if (config.ogImage && !config.ogImageAlt?.trim()) errors.push('site.config.json: ogImage is set without ogImageAlt; the share image needs its alternative text');
   // The file is read as JSON without a schema, so each llms.txt section is checked for the shape the renderer writes: one line of heading, one line per item.
   const line = (value: unknown) => typeof value === 'string' && value.trim() !== '' && !/[\r\n]/.test(value);
+  // The publishing lists are read the same way: each a list of strings.
+  for (const name of ['unpublishedScreens', 'hiddenEntries'] as const) {
+    const value: unknown = config[name];
+    if (value !== undefined && (!Array.isArray(value) || !value.every((item) => typeof item === 'string' && item !== ''))) errors.push(`site.config.json: ${name} must be a list of non-empty strings`);
+  }
   const sections: unknown = config.llmsSections;
   if (sections !== undefined && !Array.isArray(sections)) errors.push('site.config.json: llmsSections must be a list of { "heading", "items" } sections');
   if (Array.isArray(sections)) {
@@ -160,19 +166,40 @@ export function checkRoutingVersion(paths: SitePaths, toolDir: string = TOOL_DIR
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-routing-version:p1:inst-compare-versions
 }
 
-/** The outputs for a page map, keyed by their path in `dist/`: the head, the discovery files, the web manifest and the plain-text twins of the outline pages. */
+/**
+ * The outlines of the published screens as their pages show them: a screen the site leaves out has no outline here, and every other outline is pruned by the site's publishing choices (`publish.ts`).
+ * @param outlines - the composed packages' outlines
+ * @param publishing - the hidden screens and entries
+ * @param unpublished - the route tokens of the screens the site leaves out
+ */
+// @cpt-algo:cpt-template-site-meta-algo-plain-text-twins-published-outlines:p2
+export function publishedOutlines(outlines: readonly ScreenOutline[], publishing: Publishing, unpublished: readonly string[]): ScreenOutline[] {
+  // @cpt-begin:cpt-template-site-meta-algo-plain-text-twins-published-outlines:p2:inst-drop-unpublished
+  const shown = outlines.filter((outline) => !unpublished.includes(outline.screen));
+  // @cpt-end:cpt-template-site-meta-algo-plain-text-twins-published-outlines:p2:inst-drop-unpublished
+  // @cpt-begin:cpt-template-site-meta-algo-plain-text-twins-published-outlines:p2:inst-prune-pages
+  return shown.map((outline) => ({ ...outline, pages: (pruneOutline({ pages: outline.pages }, publishing) as { pages: ScreenOutline['pages'] }).pages }));
+  // @cpt-end:cpt-template-site-meta-algo-plain-text-twins-published-outlines:p2:inst-prune-pages
+}
+
+/** What the site publishes, as one run resolved it: the hidden screens and entries, and the route tokens of the screens left out. */
+export interface SitePublishing extends Publishing {
+  readonly unpublished: readonly string[];
+}
+
+/** The outputs for a page map, keyed by their path in `dist/`: the head, the discovery files, the web manifest and the plain-text twins of the published outline pages. With indexing off, robots.txt disallows every path and no `llms.txt` is written. */
 // @cpt-algo:cpt-template-site-meta-algo-generate-and-check-render-outputs:p1
-export async function renderOutputs(paths: SitePaths, config: SiteConfig, map: SiteMetaMap, indexHtml: string): Promise<Record<string, string>> {
+export async function renderOutputs(paths: SitePaths, config: SiteConfig, map: SiteMetaMap, indexHtml: string, publishing: SitePublishing = { hiddenScreens: [], hiddenEntries: [], unpublished: [] }, indexing: Indexing = 'on'): Promise<Record<string, string>> {
   // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-render-outputs:p1:inst-render-twins
-  const twins = renderTwins(readOutlines(paths.packages), map);
+  const twins = renderTwins(publishedOutlines(readOutlines(paths.packages), publishing, publishing.unpublished), map);
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-render-outputs:p1:inst-render-twins
   // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-render-outputs:p1:inst-return-outputs
   return {
     'index.html': renderIndexHtml(indexHtml, map, await bundleHeadSync()),
-    'seo-manifest.json': renderSeoManifest(map),
+    'seo-manifest.json': renderSeoManifest(map, indexing),
     'sitemap.xml': renderSitemap(map),
-    'robots.txt': renderRobots(map),
-    'llms.txt': renderLlms(map, config.defaultDescription, documentedPackages(paths), twins, config.llmsSections),
+    'robots.txt': renderRobots(map, indexing),
+    ...(indexing === 'on' ? { 'llms.txt': renderLlms(map, config.defaultDescription, documentedPackages(paths), twins, config.llmsSections) } : {}),
     'site.webmanifest': renderWebManifest(map, config),
     ...Object.fromEntries(twins.map((twin) => [twin.file, twin.content])),
   };
@@ -207,9 +234,9 @@ export function missingAssets(paths: SitePaths, map: SiteMetaMap, indexHtml: str
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-linked-assets:p2:inst-return-missing
 }
 
-/** Everything both commands need: config, screen extensions and the page map on an origin. */
+/** Everything both commands need: config, the published screen extensions, the page map on an origin with the build's indexing, and what the site leaves out. */
 // @cpt-algo:cpt-template-site-meta-algo-generate-and-check-load-site:p1
-export function loadSite(paths: SitePaths, origin: (config: SiteConfig) => string) {
+export function loadSite(paths: SitePaths, origin: (config: SiteConfig) => string, indexing: Indexing = 'on') {
   // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-read-config
   const config = readJson<SiteConfig>(paths.config);
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-read-config
@@ -217,13 +244,17 @@ export function loadSite(paths: SitePaths, origin: (config: SiteConfig) => strin
   const domain = readScreenDomain(paths.screenDomain);
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-read-domain
   // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-read-extensions
-  const extensions = readScreenExtensions(paths.packages, domain.id);
+  const all = readScreenExtensions(paths.packages, domain.id);
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-read-extensions
+  // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-published-screens
+  const { published: extensions, hiddenScreens } = publishedScreens(config, all);
+  const publishing: SitePublishing = { hiddenScreens, hiddenEntries: config.hiddenEntries ?? [], unpublished: all.filter((extension) => hiddenScreens.includes(extension.id)).map(screenToken) };
+  // @cpt-end:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-published-screens
   // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-build-map
-  const map = buildPageMap(config, origin(config), domain.key, extensions);
+  const map = buildPageMap(config, origin(config), domain.key, extensions, indexing);
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-build-map
   // @cpt-begin:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-return-site
-  return { config, extensions, map };
+  return { config, extensions, map, publishing };
   // @cpt-end:cpt-template-site-meta-algo-generate-and-check-load-site:p1:inst-return-site
 }
 
@@ -238,7 +269,8 @@ export function loadSite(paths: SitePaths, origin: (config: SiteConfig) => strin
 export async function generate(run: RunOptions, env: Readonly<Record<string, string | undefined>>): Promise<string[]> {
   // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-load-on-origin
   const { paths } = run;
-  const { config, extensions, map } = loadSite(paths, (config) => resolveOrigin(config, env));
+  const indexing = resolveIndexing(env);
+  const { config, extensions, map, publishing } = loadSite(paths, (config) => resolveOrigin(config, env), indexing);
   // @cpt-end:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-load-on-origin
   // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-if-rules-fail
   const errors = [...checkConfig(config), ...checkRules(extensions, map), ...checkRoutingVersion(paths), ...checkRasters(run.rasters)];
@@ -254,8 +286,12 @@ export async function generate(run: RunOptions, env: Readonly<Record<string, str
   if (missing.length > 0) throw new Error(missing.join('\n'));
   // @cpt-end:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-if-missing-assets
   // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-render
-  const outputs = await renderOutputs(paths, config, map, indexHtml);
+  const outputs = await renderOutputs(paths, config, map, indexHtml, publishing, indexing);
   // @cpt-end:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-render
+  // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-if-indexing-off
+  // A build that may not be indexed publishes no llms.txt, not even one an earlier generation left.
+  if (indexing === 'off') fs.rmSync(path.join(paths.dist, 'llms.txt'), { force: true });
+  // @cpt-end:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-if-indexing-off
   // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-generate:p1:inst-write-outputs
   for (const [name, content] of Object.entries(outputs)) {
     fs.mkdirSync(path.dirname(path.join(paths.dist, name)), { recursive: true });
@@ -277,11 +313,14 @@ export async function check(run: RunOptions): Promise<{ errors: string[]; compar
   const { paths } = run;
   // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-read-recorded-origin
   const manifestFile = path.join(paths.dist, 'seo-manifest.json');
-  const generatedOrigin = fs.existsSync(manifestFile) ? readJson<{ site: { origin: string } }>(manifestFile).site.origin : undefined;
+  const generated = fs.existsSync(manifestFile) ? readJson<{ site: { origin: string; indexing?: string } }>(manifestFile).site : undefined;
+  const generatedOrigin = generated?.origin;
+  // A manifest from before the switch carries no indexing; it was generated indexable.
+  const indexing = resolveIndexing({ SITE_INDEXING: generated?.indexing });
   // @cpt-end:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-read-recorded-origin
   // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-load-site
   // Without generated outputs the rules need some origin to resolve addresses; the value does not enter any rule.
-  const { config, extensions, map } = loadSite(paths, () => generatedOrigin ?? 'http://localhost');
+  const { config, extensions, map, publishing } = loadSite(paths, () => generatedOrigin ?? 'http://localhost', indexing);
   // @cpt-end:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-load-site
   // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-apply-rules
   const configErrors = checkConfig(config);
@@ -299,8 +338,11 @@ export async function check(run: RunOptions): Promise<{ errors: string[]; compar
     // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-compare-outputs
     // A config the rules refuse cannot be rendered (generate throws on it too), so its messages stand alone.
     if (configErrors.length === 0) {
-      const outputs = await renderOutputs(paths, config, map, current);
+      const outputs = await renderOutputs(paths, config, map, current, publishing, indexing);
       compared = true;
+      // @cpt-begin:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-if-llms-unindexed
+      if (indexing === 'off' && fs.existsSync(path.join(paths.dist, 'llms.txt'))) errors.push(`${shown(paths, path.join(paths.dist, 'llms.txt'))} is published although the build may not be indexed; run npm run seo:generate`);
+      // @cpt-end:cpt-template-site-meta-flow-generate-and-check-check:p1:inst-if-llms-unindexed
       for (const [name, content] of Object.entries(outputs)) {
         const file = path.join(paths.dist, name);
         if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== content) errors.push(`${shown(paths, file)} differs from what the sources generate; run npm run seo:generate`);

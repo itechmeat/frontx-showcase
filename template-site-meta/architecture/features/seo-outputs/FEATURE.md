@@ -85,7 +85,7 @@ The crawl is a series of reads of static files from the host; the renderers run 
 
 - [x] `p1` - **ID**: `cpt-template-site-meta-algo-seo-outputs-sitemap-robots`
 
-**Input**: The page map.
+**Input**: The page map, and the build's indexing.
 
 **Output**: `sitemap.xml` and `robots.txt`.
 
@@ -93,7 +93,8 @@ The crawl is a series of reads of static files from the host; the renderers run 
 1. [x] - `p1` - Escape a text for XML - `inst-escape-xml`
 2. [x] - `p1` - Take every indexable static page in menu order as a `<url>` with its escaped canonical address; no `lastmod`, no pattern route - `inst-indexable-urls`
 3. [x] - `p1` - **RETURN** the sitemap document in the sitemaps.org namespace - `inst-return-sitemap`
-4. [x] - `p1` - **RETURN** a robots file that allows every agent everything and names the sitemap on the origin - `inst-return-robots`
+4. [x] - `p1` - **IF** the build's indexing is `off`, **RETURN** a robots file that disallows every path to every agent and names no sitemap - `inst-if-indexing-off`
+5. [x] - `p1` - **RETURN** a robots file that allows every agent everything and names the sitemap on the origin - `inst-return-robots`
 
 ### llms.txt
 
@@ -132,7 +133,7 @@ The crawl is a series of reads of static files from the host; the renderers run 
 2. [x] - `p1` - Describe a page entry: address, screen, route, title, document title, description, indexable and share fields - `inst-page-entry`
 3. [x] - `p1` - Key every static page by its canonical address - `inst-pages-by-canonical`
 4. [x] - `p1` - List the pattern pages apart, screens in menu order, each with its address pattern - `inst-patterns-apart`
-5. [x] - `p1` - **RETURN** the site fields (name, origin, locale, home page, screen domain key, `route` parameter name), the pages and the patterns as indented JSON - `inst-return-manifest`
+5. [x] - `p1` - **RETURN** the site fields (name, origin, the build's indexing, locale, home page, screen domain key, `route` parameter name), the pages and the patterns as indented JSON - `inst-return-manifest`
 
 ### Head Block of the Built Document
 
@@ -181,7 +182,7 @@ Not applicable because every renderer is a pure function of its inputs; generati
 
 - [x] `p1` - **ID**: `cpt-template-site-meta-dod-seo-outputs-discovery-files`
 
-The system **MUST** render the sitemap of every indexable static page in menu order, a robots file that allows crawling and names the sitemap, `llms.txt` with a section per screen, grouped pages, the twins, the documented packages and the sections the site configuration adds, and the page map manifest keyed by canonical address with the pattern pages apart, each as a pure function of its inputs.
+The system **MUST** render the sitemap of every indexable static page in menu order (no address when the build's indexing is off, since no page is indexable then), a robots file that allows crawling and names the sitemap or, with indexing off, disallows every path and names none, `llms.txt` with a section per screen, grouped pages, the twins, the documented packages and the sections the site configuration adds, and the page map manifest keyed by canonical address with the pattern pages apart, each as a pure function of its inputs.
 
 **Implements**:
 - `cpt-template-site-meta-algo-seo-outputs-sitemap-robots`
@@ -227,7 +228,7 @@ The system **MUST** render a web manifest with the site's name, short name, desc
 - [x] `sitemap.xml` lists every indexable page and no pattern route.
 - [x] `llms.txt` has a section per screen in menu order, routes grouped by their first segment, and the package links.
 - [x] `llms.txt` ends with the sections the site configuration adds, and is unchanged without them.
-- [x] `robots.txt` points at the sitemap on the origin.
+- [x] `robots.txt` points at the sitemap on the origin; with indexing off it is `User-agent: *` and `Disallow: /` with no sitemap line, and the sitemap lists no address.
 - [x] `seo-manifest.json` keys pages by canonical address and lists pattern routes apart.
 - [x] `index.html` gets the site-level head, the page map and the script once, however often it is generated.
 - [x] Inlined text never closes its script element, and the script stays valid.
@@ -237,4 +238,5 @@ The system **MUST** render a web manifest with the site's name, short name, desc
 
 **Test scenarios** (all in `template-site-meta/src-app/verify_packages/site-meta/src/`):
 - `outputs.test.ts` with its snapshot `__snapshots__/outputs.test.ts.snap`: "sitemap.xml lists every indexable page, no pattern route"; "llms.txt has a section per screen in menu order, routes grouped by their first segment, and the package links"; "llms.txt ends with the sections the site config adds, and is unchanged without them"; "robots.txt points at the sitemap on the origin"; "seo-manifest.json keys pages by canonical URL and lists pattern routes apart"; "index.html gets the site-level head, the page map and the script once, however often it is generated"; "index.html never lets inlined text close its script element, and keeps the script valid"; "resolves a share image path on the origin and gives it its alternative text in the head"; "links the icons and the web manifest relative to the document, so the head works at any mount point"; "writes a web manifest that starts at the home page with the site colors and icons".
+- `publishing.test.ts`: "makes no page indexable, pattern routes and the home page included"; "generates noindex heads, a sitemap without addresses, a robots.txt that disallows everything and no llms.txt; check holds and refuses a planted llms.txt"; "leaves an indexing-on build as it was".
 - `bundle.test.ts`: the generated document with the real bundle, run in jsdom, applies the page of its address and follows a history step.

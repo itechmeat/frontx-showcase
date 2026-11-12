@@ -208,12 +208,12 @@ class TwinRenderer {
       const fence = '`'.repeat(Math.max(3, ...[...content.matchAll(/`+/g)].map((run) => run[0].length + 1)));
       out.push('', `### ${path}`, '', `${this.text(file.text)}${typeof file.lines === 'number' ? ` (${file.lines} lines)` : ''}`, ...(url ? ['', `File at the pinned commit: ${url}`] : []), '', `${fence}${languageOf(path)}`, content, fence);
     }
-    const example = isObject(entry.example) ? entry.example : undefined;
+    // An example whose screens the site does not publish has no screens left, and is not shown; nor is a link that opens such a screen.
+    const example = isObject(entry.example) && Array.isArray(entry.example.screens) ? entry.example : undefined;
     if (example) {
-      const open = isObject(example.open) ? example.open : {};
       out.push('', `### ${this.line(example.title)}`, '', this.text(example.text), '');
       for (const screen of asList(example.screens).filter(isObject)) out.push(`- [${this.line(screen.title)}](${this.href(screen.href)})`);
-      out.push('', `[${this.line(open.label)}](${this.href(open.href)})`);
+      if (isObject(example.open)) out.push('', `[${this.line(example.open.label)}](${this.href(example.open.href)})`);
     }
     const source = isObject(entry.source) ? entry.source : undefined;
     if (source) {
@@ -252,12 +252,12 @@ class TwinRenderer {
   }
   // @cpt-end:cpt-template-site-meta-algo-plain-text-twins-render-page:p2:inst-render-step
 
-  /** Linked cards or nodes as list items: `- [title](address): text`. */
+  /** Linked cards or nodes as list items: `- [title](address): text`; a node without a link (its screen is not published) as `- title: text`. */
   // @cpt-begin:cpt-template-site-meta-algo-plain-text-twins-render-page:p2:inst-render-cards
   cards(value: unknown, textKey = 'text'): string[] {
     return asList(value)
       .filter(isObject)
-      .map((item) => `- [${this.line(item.title)}](${this.href(item.href)})${item[textKey] ? `: ${this.text(item[textKey])}` : ''}`);
+      .map((item) => `- ${isObject(item.href) ? `[${this.line(item.title)}](${this.href(item.href)})` : this.line(item.title)}${item[textKey] ? `: ${this.text(item[textKey])}` : ''}`);
   }
   // @cpt-end:cpt-template-site-meta-algo-plain-text-twins-render-page:p2:inst-render-cards
 

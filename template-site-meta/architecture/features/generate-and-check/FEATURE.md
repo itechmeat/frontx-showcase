@@ -76,20 +76,23 @@ Published metadata must never go stale silently. Generation refuses to write any
 
 **Success Scenarios**:
 - The build runs generation with an origin, every rule holds and every linked asset exists: every output and twin is written into the build output and listed.
+- The build runs generation with `SITE_INDEXING=off`: no page is indexable, robots.txt disallows every path, the sitemap lists no address and no `llms.txt` is written, nor kept from an earlier generation.
 
 **Error Scenarios**:
 - No origin: generation stops with the message naming `site.config.json.origin`.
+- `SITE_INDEXING` is neither `on` nor `off`, or `unpublishedScreens` names a screen the site does not have or its home screen: generation stops naming it.
 - A rule fails: generation stops listing every failure, and nothing is written.
 - The build output has no built document: generation stops asking for the build first.
 - A linked asset is missing from the build output: generation stops naming each missing file.
 
 **Steps**:
 1. [x] - `p1` - Show a path in a message relative to the project - `inst-shown-path`
-2. [x] - `p1` - The build runs generation; load the site on the origin resolved from the preview override or the configuration - `inst-load-on-origin`
+2. [x] - `p1` - The build runs generation; resolve the indexing and load the site on the origin resolved from the preview override or the configuration - `inst-load-on-origin`
 3. [x] - `p1` - Apply the configuration rule, the metadata rules, the routing version check and the raster record check; **IF** any fails, stop listing every failure - `inst-if-rules-fail`
 4. [x] - `p1` - **IF** the build output has no `index.html`, stop asking for the build first - `inst-if-no-build`
 5. [x] - `p1` - Read the built document; **IF** a linked asset is missing, stop naming each one - `inst-if-missing-assets`
-6. [x] - `p1` - Render every output and twin - `inst-render`
+6. [x] - `p1` - Render every output and twin, with the site's publishing choices and the build's indexing - `inst-render`
+   1. [x] - `p1` - **IF** the indexing is `off`, remove any `llms.txt` the build output holds - `inst-if-indexing-off`
 7. [x] - `p1` - **FOR EACH** output, create its folder and write it into the build output - `inst-write-outputs`
 8. [x] - `p1` - **RETURN** the written files relative to the project - `inst-return-written`
 
@@ -101,20 +104,22 @@ Published metadata must never go stale silently. Generation refuses to write any
 
 **Success Scenarios**:
 - Without generated outputs: the rules hold and the result says no outputs were compared.
-- With generated outputs: the rules hold and every output equals what the sources generate on the recorded origin.
+- With generated outputs: the rules hold and every output equals what the sources generate on the recorded origin and with the recorded indexing.
 
 **Error Scenarios**:
 - A rule fails: each failure is reported.
 - A linked asset is missing from the build output: each missing file is named.
 - An output differs from what the sources generate or is missing: each is named with the command that generates it again.
+- A build recorded as not indexable holds an `llms.txt`: it is named.
 
 **Steps**:
-1. [x] - `p1` - The developer or continuous integration runs the check; read the origin recorded in the build output's page map manifest, when there is one - `inst-read-recorded-origin`
+1. [x] - `p1` - The developer or continuous integration runs the check; read the origin and the indexing recorded in the build output's page map manifest, when there is one (a manifest that records no indexing was generated indexable) - `inst-read-recorded-origin`
 2. [x] - `p1` - Load the site on the recorded origin, or on a placeholder origin that enters no rule - `inst-load-site`
 3. [x] - `p1` - Apply the configuration rule, the metadata rules, the routing version check and the raster record check - `inst-apply-rules`
 4. [x] - `p1` - **IF** generated outputs exist - `inst-if-outputs-exist`
    1. [x] - `p1` - Read the built document and report every missing linked asset - `inst-check-assets`
    2. [x] - `p1` - **IF** the configuration rule reported an error, its messages stand alone and the outputs are not compared; **ELSE** render every output again and, **FOR EACH** output, **IF** its file is missing or differs, report it with the command to generate again - `inst-compare-outputs`
+      1. [x] - `p1` - **IF** the recorded indexing is `off` and the build output holds an `llms.txt`, report it - `inst-if-llms-unindexed`
 5. [x] - `p1` - **RETURN** the failures and whether outputs were compared - `inst-return-result`
 
 ### Run the Command Line
@@ -161,16 +166,17 @@ Published metadata must never go stale silently. Generation refuses to write any
 
 - [x] `p1` - **ID**: `cpt-template-site-meta-algo-generate-and-check-load-site`
 
-**Input**: The project paths and the way to resolve the origin.
+**Input**: The project paths, the way to resolve the origin and the build's indexing.
 
-**Output**: The configuration, the screen extensions and the page map.
+**Output**: The configuration, the published screen extensions, the page map and what the site leaves out.
 
 **Steps**:
 1. [x] - `p1` - Read the site configuration - `inst-read-config`
 2. [x] - `p1` - Read the screen domain - `inst-read-domain`
 3. [x] - `p1` - Read the screen extensions of the composed packages - `inst-read-extensions`
-4. [x] - `p1` - Build the page map on the resolved origin - `inst-build-map`
-5. [x] - `p1` - **RETURN** the configuration, the extensions and the map - `inst-return-site`
+4. [x] - `p1` - Split the extensions into the published ones and the ones `unpublishedScreens` leaves out (`cpt-template-site-meta-algo-page-map-published-screens`), and take the hidden screens' extension ids and tokens with `hiddenEntries` - `inst-published-screens`
+5. [x] - `p1` - Build the page map of the published screens on the resolved origin with the build's indexing - `inst-build-map`
+6. [x] - `p1` - **RETURN** the configuration, the published extensions, the map and the publishing choices - `inst-return-site`
 
 ### Metadata Rules
 
@@ -181,7 +187,7 @@ Published metadata must never go stale silently. Generation refuses to write any
 **Output**: One message per broken rule; none when the sources hold the rules.
 
 **Steps**:
-1. [x] - `p1` - **IF** a share image is configured without alternative text, or an `llmsSections` entry lacks a one-line heading or a non-empty list of one-line items, report it - `inst-config-rule`
+1. [x] - `p1` - **IF** a share image is configured without alternative text, an `llmsSections` entry lacks a one-line heading or a non-empty list of one-line items, or `unpublishedScreens` or `hiddenEntries` is not a list of non-empty strings, report it - `inst-config-rule`
 2. [x] - `p1` - Check a place's fields: a title is required; a description is required where asked and, when present, is 50 to 160 characters - `inst-describe-rule`
 3. [x] - `p1` - **FOR EACH** screen extension - `inst-foreach-extension`
    1. [x] - `p1` - Name it by its package and route - `inst-name-place`
@@ -208,7 +214,7 @@ Published metadata must never go stale silently. Generation refuses to write any
 
 - [x] `p1` - **ID**: `cpt-template-site-meta-algo-generate-and-check-render-outputs`
 
-**Input**: The project paths, the configuration, the page map and the built document.
+**Input**: The project paths, the configuration, the page map, the built document, the site's publishing choices and the build's indexing.
 
 **Output**: Every output and twin keyed by its path in the build output.
 
@@ -217,8 +223,8 @@ Published metadata must never go stale silently. Generation refuses to write any
 2. [x] - `p1` - Bundle head-sync's browser entry with esbuild into one minified IIFE for the browser, with no legal comments and no file written - `inst-bundle`
 3. [x] - `p1` - **IF** esbuild produced no output, fail; **ELSE** **RETURN** its text - `inst-if-no-bundle`
 4. [x] - `p1` - **FOR EACH** documented package installed in the project with an `llms.txt`, link its published `llms.txt` on unpkg at the installed version with its description; a package without one is left out; nothing is fetched - `inst-find-published-llms`
-5. [x] - `p1` - Render the twins of the composed outlines - `inst-render-twins`
-6. [x] - `p1` - **RETURN** the head block of the built document with the bundle, the page map manifest, the sitemap, the robots file, `llms.txt`, the web manifest and every twin by its file - `inst-return-outputs`
+5. [x] - `p1` - Render the twins of the published outlines (`cpt-template-site-meta-algo-plain-text-twins-published-outlines`) - `inst-render-twins`
+6. [x] - `p1` - **RETURN** the head block of the built document with the bundle, the page map manifest with the indexing, the sitemap, the robots file for the indexing, `llms.txt` only when the indexing is `on`, the web manifest and every twin by its file - `inst-return-outputs`
 
 ### Linked Assets
 
@@ -282,7 +288,7 @@ The system **MUST** generate only after every rule holds, the built document exi
 
 - [x] `p1` - **ID**: `cpt-template-site-meta-dod-generate-and-check-check`
 
-The system **MUST** apply the configuration and metadata rules in the check as in generation and, when generated outputs exist, generate them again on the recorded origin and name each output that differs or is missing; without outputs it **MUST** say that none were compared.
+The system **MUST** apply the configuration and metadata rules in the check as in generation and, when generated outputs exist, generate them again on the recorded origin with the recorded indexing and name each output that differs or is missing, and an `llms.txt` of a build that may not be indexed; without outputs it **MUST** say that none were compared.
 
 **Implements**:
 - `cpt-template-site-meta-flow-generate-and-check-check`
@@ -340,6 +346,8 @@ The system **MUST** run `generate` or `check` with the `--project`, `--config` a
 - [x] Generation writes a twin per outline page from its strings and data, lists it in `llms.txt` and the check holds it to its sources.
 - [x] Generation is refused when the build lacks an icon the head links, or an icon the built page links, the main favicon among them.
 - [x] The check fails when a share image is configured without its alternative text.
+- [x] With `SITE_INDEXING=off`, generation writes noindex heads, a sitemap without addresses, a robots.txt that disallows everything and no `llms.txt`, removing one an earlier generation left; the check holds on that build and names a planted `llms.txt`.
+- [x] A screen `unpublishedScreens` names is in no output: no page, sitemap line, `llms.txt` line or twin; the published outlines' links to it are pruned with what holds them; the entries `hiddenEntries` names are in no twin; the check holds on that build.
 - [x] A missing metadata block, a missing title, a description outside 50 to 160 characters, two pages with one title, two route keys naming one address and a route key that is not a path inside the screen are each refused.
 - [x] The routing version check holds when the tool bundles the project's copy, when both copies are one version or when the project has no install, and fails when the tool resolves its own copy of another version.
 - [x] The raster check does nothing without a record, holds while every raster and copy matches, and names an edited source with its stale copy, a replaced raster and a missing recorded file.
@@ -349,3 +357,4 @@ The system **MUST** run `generate` or `check` with the `--project`, `--config` a
 - `check.test.ts`: the `check` cases ("reports the rules alone when site/dist has no generated outputs"; "holds right after generation, and names every output that drifts from the sources"; "writes a plain-text twin per outline page from its strings and data, lists it in llms.txt and holds it to its sources"; "refuses to generate when the build lacks an icon the head links"; "refuses to generate when the built page links an icon the build lacks, the main favicon among them"; "fails the check when a share image is configured without its alternative text"); the `checkConfig`, `linkedIcons`, `checkRoutingVersion`, `checkRasters` cases and "the duplicate canonical rule".
 - `generate.test.ts`: "seo rules hold for well-formed metadata"; "require a seo block, a title and a 50 to 160 character description"; "refuse two pages with one title, and a route key that is not a path inside the screen".
 - `args.test.ts`: the three `parseArgs` cases.
+- `publishing.test.ts`: "generates noindex heads, a sitemap without addresses, a robots.txt that disallows everything and no llms.txt; check holds and refuses a planted llms.txt"; "leaves an indexing-on build as it was"; "leaves an unpublished screen out of every output and prunes the links published outlines hold to it"; "publishes every screen when the list is absent"; "refuses a token no screen declares, the home screen, and a list that is not one of strings".
