@@ -88,7 +88,7 @@ Who sets what:
 | Setting | Where | Who |
 |---|---|---|
 | Pages source "GitHub Actions", the custom domain `frontx.cfabric.org`, "Enforce HTTPS" once the certificate is issued | this repository, Settings, Pages | a repository admin |
-| The GitHub App: installed on `frontx-showcase` and `frontx-showcase-previews` with Contents read and write on the preview repository, Issues or Pull requests read and write on this repository (the comment), and Metadata read; each run mints a token narrowed to one repository and one permission (Contents write on the preview repository, Pull requests write on this repository for the comment), so the app needs Pull requests rather than Issues | the organization's settings | an organization admin |
+| The GitHub App: installed on `frontx-showcase` and `frontx-showcase-previews` with Contents read and write on the preview repository, Pull requests read and write on this repository (the comment), and Metadata read; each run mints a token narrowed to one repository and one permission (Contents write on the preview repository, Pull requests write on this repository for the comment) | the organization's settings | an organization admin |
 | `AUTOMATION_APP_ID` (variable) and `AUTOMATION_APP_PRIVATE_KEY` (secret) of that app | this repository's Actions settings, or the organization's with access for this repository | an organization admin |
 | `PREVIEW_REPOSITORY` (`owner/name`, `constructorfabric/frontx-showcase-previews` when unset; it must belong to the same owner, and another name also needs the address in `preview-build.yml`) and `PREVIEW_RETENTION_DAYS` (7 when unset) | Actions variables of this repository; `PREVIEW_RETENTION_DAYS` also in the preview repository, for its cleanup | a repository admin |
 
