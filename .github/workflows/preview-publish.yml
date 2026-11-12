@@ -68,6 +68,7 @@ jobs:
 
     # Threat model: the artifact was built by the pull request's own code, from a fork or a branch, so this run trusts none of it; it does not control what a preview page shows, only that none is indexed.
     # How: its own robots meta goes in right after the opening doctype of every page, where nothing earlier in the file can hide it, and it writes robots.txt and drops sitemap.xml and llms.txt itself; nothing from the artifact or the pull request runs.
+    # Accepted residual window: a page's own script can change its robots meta after load, which a crawler indexing the rendered page would see.
     # The size limit of "Preview build" is enforced here for the same reason: the preview repository's Pages site, 1 GB for every open preview, takes at most MAX_MB from one.
     - name: Make every page of the artifact unindexable
       if: steps.config.outputs.configured == 'true'
@@ -85,8 +86,13 @@ jobs:
         show() { printf '%q' "${1:0:200}"; }
         doctype='<!doctype html>'
         meta='<meta name="robots" content="noindex, nofollow">'
-        other="$(find . -type f \( -iname '*.xhtml' -o -iname '*.shtml' \) -print -quit)"
+        other="$(find . -type f \( -iname '*.xhtml' -o -iname '*.shtml' -o -iname '*.xht' -o -iname '*.shtm' \) -print -quit)"
         if [ -n "$other" ]; then echo "::error::the artifact holds $(show "$other"), a page this run does not make unindexable"; exit 1; fi
+        while IFS= read -r -d '' file; do
+          case "$(head -c 18 "$file" | tr '[:upper:]' '[:lower:]')" in
+            '<!doctype html>'* | $'\xef\xbb\xbf<!doctype html>'*) echo "::error::$(show "$file") starts like an HTML page but is not named .html or .htm"; exit 1 ;;
+          esac
+        done < <(find . -type f ! -iname '*.html' ! -iname '*.htm' -print0)
         while IFS= read -r -d '' page; do
           if [ "$(head -c 15 "$page" | tr '[:upper:]' '[:lower:]')" != "$doctype" ]; then echo "::error::$(show "$page") does not start with $doctype"; exit 1; fi
           written="$(mktemp)"
