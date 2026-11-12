@@ -126,7 +126,7 @@ A page can also break in ways only a browser sees (contrast, a missing heading, 
 - The developer or CI runs `npm run verify:ui` after `npm run build`; the runner sweeps every route at both widths in the light theme and exits with success when every finding is one the baseline carries.
 
 **Error Scenarios**:
-- The site has not been built, or the baseline is missing: the command names the missing file and the command that makes it, and exits with an environment failure.
+- The site has not been assembled (the routes come from the composed screens), or the baseline is missing: the command says what is missing and names the command that makes it (`npm run setup` for the site), and exits with an environment failure.
 - A finding the baseline does not carry: the runner reports it as new and exits with a failure. A finding whose only change is a generated React id (`_r_1n_`, the kit's `base-ui-_r_8_`: React numbers elements in render order, which differs between runs) is the baseline's finding, not a new one.
 
 **Steps**:
