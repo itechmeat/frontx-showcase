@@ -5,6 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { isEntryPoint } from './entry-point.mjs';
+import { loadPublishing, publishedAggregate } from './site-publish.mjs';
 
 /** The aggregate the shell reads at bootstrap, copied by the host build from site/public/. */
 export const AGGREGATE_FILE = 'generated-mfe-manifests.json';
@@ -64,19 +65,22 @@ function setPublicPath(manifest, publicPath) {
 }
 
 /**
- * Lays out the remotes in site/dist and rewrites the aggregate there. Fails, before writing anything, when dist/ has no aggregate or when an aggregate config names a manifest no built package carries.
+ * Lays out the remotes in site/dist and rewrites the aggregate there, without the screens the site does not publish (`publishedAggregate`). Fails, before writing anything, when dist/ has no aggregate or when an aggregate config names a manifest no built package carries.
  * @param {string} siteDir - the site directory (`site/`)
+ * @param {string[]} [hiddenScreens] - the extension ids of the unpublished screens
  * @returns {string[]} the package directories laid out, in aggregate order
  */
 // @cpt-dod:cpt-site-dod-production-build-layout-dist-layout:p2
-export function layoutDist(siteDir) {
+export function layoutDist(siteDir, hiddenScreens = []) {
   // @cpt-begin:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-if-no-aggregate
   const distDir = path.join(siteDir, 'dist');
   const aggregateFile = path.join(distDir, AGGREGATE_FILE);
   if (!fs.existsSync(aggregateFile)) throw new Error(`site-dist: ${path.relative(siteDir, aggregateFile)} does not exist; run the site build first (it copies the aggregate from public/)`);
   // @cpt-end:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-if-no-aggregate
   // @cpt-begin:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-index-built
-  const configs = JSON.parse(fs.readFileSync(aggregateFile, 'utf8'));
+  // @cpt-begin:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-prune-unpublished
+  const { configs } = publishedAggregate(JSON.parse(fs.readFileSync(aggregateFile, 'utf8')), hiddenScreens);
+  // @cpt-end:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-prune-unpublished
   const packagesDir = path.join(siteDir, 'src-app', 'mfe_packages');
   const byId = builtPackagesById(packagesDir);
   // @cpt-end:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-index-built
@@ -110,7 +114,7 @@ if (isEntryPoint(import.meta.url)) {
   // @cpt-begin:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-run-layout
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   try {
-    const laidOut = layoutDist(path.join(root, 'site'));
+    const laidOut = layoutDist(path.join(root, 'site'), loadPublishing(root).publishing.hiddenScreens);
     // @cpt-end:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-run-layout
     // @cpt-begin:cpt-site-flow-production-build-layout-lay-out-dist:p2:inst-report
     console.log(`site-dist: ${laidOut.length} remote(s) in site/dist/${MFE_DIR}/: ${laidOut.join(', ')}`);

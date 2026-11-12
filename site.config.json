@@ -1,5 +1,6 @@
 {
   "siteName": "FrontX · Constructor Fabric",
+  "origin": "https://frontx.cfabric.org",
   "shortName": "FrontX",
   "titleTemplate": "%s · FrontX",
   "defaultDescription": "FrontX is an open-source kit for web applications built from a shell, screen microfrontends and a shared UI kit.",
@@ -15,6 +16,8 @@
     "catalogue"
   ],
   "headerHiddenGroups": [],
+  "unpublishedScreens": ["blocks", "calendar", "catalogue", "inbox-chat", "inbox-contacts", "inbox-dashboard", "inbox-mail", "mfe-hello-world", "mfe-profile", "mfe-theme", "mfe-widgets"],
+  "hiddenEntries": ["home-teams"],
   "twitterCard": "summary_large_image",
   "ogImage": "/og-image.png",
   "ogImageAlt": "FrontX by Constructor Fabric: build complex web applications on a shared foundation. A shell, independent screen microfrontends and a shared UI kit.",
@@ -27,7 +30,8 @@
         "Source: [constructorfabric/frontx-showcase](https://github.com/constructorfabric/frontx-showcase); Node 24.14 or later, npm 10.",
         "Install: `npm ci`, then `npm run setup` (composes the templates into `site/` and installs the site).",
         "Develop: `npm run dev` serves the site at http://localhost:5173/.",
-        "Build: `SITE_ORIGIN=https://<domain> npm run build` writes the static site to `site/dist/`.",
+        "Build: `npm run build` writes the static site for https://frontx.cfabric.org (`origin` in `site.config.json`) to `site/dist/`; `SITE_ORIGIN=https://<domain>` builds it for another address, and `SITE_INDEXING=off` builds a copy no page of which may be indexed.",
+        "Host: GitHub Pages serves the build of `main` at https://frontx.cfabric.org, and each pull request's build as a preview that is not indexed.",
         "Run the site: `npm start` installs and builds it when `site/dist/` is missing or out of date, then serves `site/dist/` on `$PORT` (default 8080), as a Node host such as DigitalOcean App Platform or Virtuozzo Application Platform runs it; `Dockerfile` builds the same site into a Caddy image."
       ]
     }
