@@ -95,4 +95,17 @@ describe('home outline', () => {
     const map = home?.entries.find((entry) => entry.type === 'architecture-map');
     expect(map?.type === 'architecture-map' && map.map.kit.href).toBeUndefined();
   });
+
+  // The architecture drawing needs its two screen nodes; a node whose screen the site leaves out stays as plain text, as every other map node does.
+  it('keeps both screen nodes of the architecture map when one links a screen left out, that one without its link', () => {
+    const value = structuredClone(outlineJson) as { pages: { entries: { type: string; map?: { screens: { href?: unknown }[] } }[] }[] };
+    const screens = value.pages[0]?.entries.find((entry) => entry.type === 'architecture-map')?.map?.screens ?? [];
+    screens[1] = { ...screens[1], href: { extension: CATALOGUE_SCREEN_EXTENSION } };
+    const pruned = parseOutline(pruneOutline(value, { hiddenScreens: [CATALOGUE_SCREEN_EXTENSION], hiddenEntries: [] })).pages[0];
+    const map = pruned?.entries.find((entry) => entry.type === 'architecture-map');
+    expect(map?.type === 'architecture-map' && map.map.screens.map((node) => ({ title: node.title, hint: node.hint, extension: node.href && 'extension' in node.href ? node.href.extension : undefined }))).toEqual([
+      { title: 't:architecture.screenA', hint: 't:architecture.screenHint', extension: SITE_SCREEN_EXTENSIONS.templates },
+      { title: 't:architecture.screenB', hint: 't:architecture.screenHint', extension: undefined },
+    ]);
+  });
 });

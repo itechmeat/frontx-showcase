@@ -140,7 +140,7 @@ One source per content page lets the screen and its plain-text twin agree, and l
 
 **Steps**:
 1. [x] - `p1` - Name the publishing choices and the mark of a value that goes - `inst-publishing-types`
-2. [x] - `p1` - Prune a value: a list keeps the items that do not go and goes itself when pruning empties it; in an object, a link target that names a hidden screen takes the object with it when the object is a list item or a labelled link, and only the link target otherwise (a map node or a source line stays as plain text); a property that goes takes a list item with it and is dropped from any other object - `inst-prune-value`
+2. [x] - `p1` - Prune a value: a list keeps the items that do not go and goes itself when pruning empties it; in an object, a link target that names a hidden screen takes the object with it when the object is a list item (other than a screen node of an architecture map) or a labelled link, and only the link target otherwise (a map node, each screen node of the map included, or a source line stays as plain text); a property that goes takes a list item with it and is dropped from any other object - `inst-prune-value`
 3. [x] - `p1` - **IF** the outline has no pages or nothing is hidden, **RETURN** it as it is - `inst-if-nothing-hidden`
 4. [x] - `p1` - **FOR EACH** page, keep it with its entries list: drop the entries whose id is hidden, prune the others as list items, and drop a back link that names a hidden screen - `inst-foreach-page`
 5. [x] - `p1` - **RETURN** the outline with the pruned pages - `inst-return-pruned`

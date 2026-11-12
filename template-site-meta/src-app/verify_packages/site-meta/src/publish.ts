@@ -20,30 +20,31 @@ const GONE = Symbol('gone');
 // @cpt-end:cpt-template-site-meta-algo-plain-text-twins-prune-outline:p2:inst-publishing-types
 
 /**
- * One value of an outline with every link to a hidden screen taken out. A link target (`href`) that names a hidden screen takes out what holds it: a list item, a labelled link (`label` and `href`), or, on a node that is neither (a map node, a source line), only the `href`, so the node stays as plain text. A list emptied that way goes as a whole. What goes from a list item takes the item with it; what goes from any other object is dropped from it, and that object stays.
+ * One value of an outline with every link to a hidden screen taken out. A link target (`href`) that names a hidden screen takes out what holds it: a list item, a labelled link (`label` and `href`), or, on a node that is neither (a map node, the architecture map's screen nodes included, a source line), only the `href`, so the node stays as plain text. A list emptied that way goes as a whole. What goes from a list item takes the item with it; what goes from any other object is dropped from it, and that object stays.
  * @param value - the raw value
  * @param element - whether the value is an item of a list
  * @param screens - the hidden screen extension ids
+ * @param key - the name the value sits under; a name under an architecture map reads `map.<name>`, so the items of `map.screens` are map nodes, not list items
  */
 // @cpt-begin:cpt-template-site-meta-algo-plain-text-twins-prune-outline:p2:inst-prune-value
-function prune(value: unknown, element: boolean, screens: ReadonlySet<string>): unknown {
+function prune(value: unknown, element: boolean, screens: ReadonlySet<string>, key = ''): unknown {
   if (Array.isArray(value)) {
-    const kept = value.map((item) => prune(item, true, screens)).filter((item) => item !== GONE);
+    const kept = value.map((item) => prune(item, key !== 'map.screens', screens)).filter((item) => item !== GONE);
     return value.length > 0 && kept.length === 0 ? GONE : kept;
   }
   if (!isObject(value)) return value;
   const out: Json = {};
-  for (const [key, child] of Object.entries(value)) {
-    if (key === 'href' && isObject(child) && typeof child.extension === 'string' && screens.has(child.extension)) {
+  for (const [name, child] of Object.entries(value)) {
+    if (name === 'href' && isObject(child) && typeof child.extension === 'string' && screens.has(child.extension)) {
       if (element || typeof value.label === 'string') return GONE;
       continue;
     }
-    const next = prune(child, false, screens);
+    const next = prune(child, false, screens, key === 'map' ? `map.${name}` : name);
     if (next === GONE) {
       if (element) return GONE;
       continue;
     }
-    out[key] = next;
+    out[name] = next;
   }
   return out;
 }

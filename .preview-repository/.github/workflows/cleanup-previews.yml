@@ -1,6 +1,6 @@
 name: Clean up old previews
 
-# Runs in the preview repository. Removes every pr-<N>/ whose last commit is older than the retention period: vars.PREVIEW_RETENTION_DAYS, 7 days by default, or the days a manual run names. frontx-showcase's "Preview remove" already removes a preview when its pull request closes; this catches what that missed and previews of pull requests left open without new builds.
+# Runs in the preview repository. Removes every pr-<N>/ whose last commit is older than the retention period: vars.PREVIEW_RETENTION_DAYS, 7 days by default, or the days a manual run names. frontx-showcase's "Preview remove" already removes a preview when its pull request closes; this catches what that missed and previews of pull requests left open without new builds. Every publish writes pr-<N>/.preview-build, so a re-run of a build also counts as a new build.
 on:
   schedule:
     - cron: "17 3 * * *"

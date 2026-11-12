@@ -1,6 +1,6 @@
 name: Preview build
 
-# The build of a pull request for its preview: site/dist built for the preview's address under constructorfabric.github.io/frontx-showcase-previews/pr-<N>/ with indexing off, checked to be unindexable, and uploaded as the artifact site-preview with the pull request's number and head commit in preview-meta.json. It runs with read access only and no secrets; "Preview publish" publishes the artifact from a separate, privileged run that executes nothing from it.
+# The build of a pull request for its preview: site/dist built for the preview's address under constructorfabric.github.io/frontx-showcase-previews/pr-<N>/ with indexing off, checked to be unindexable (every page noindex, robots.txt disallowing every path, an empty sitemap, no llms.txt; an SVG or JSON file carries no mark), and uploaded as the artifact site-preview with the pull request's number and head commit in preview-meta.json. It runs with read access only and no secrets; "Preview publish" publishes the artifact from a separate, privileged run that executes nothing from it.
 on:
   pull_request:
     branches: [ main ]

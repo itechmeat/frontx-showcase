@@ -1,7 +1,7 @@
 name: Preview publish
 
 # Publishes the artifact of a successful "Preview build" run of a pull request into the preview repository (vars.PREVIEW_REPOSITORY, constructorfabric/frontx-showcase-previews by default) as pr-<N>/, served by its GitHub Pages at https://<owner>.github.io/<name>/pr-<N>/, and keeps one comment on the pull request that names it.
-# Security: this run never checks out code and executes nothing from the artifact; the artifact is files only. The build ran the pull request's own code, its indexing check included, so this run makes the artifact unindexable with its own shell before it publishes anything, and every path must be a regular file or a folder. The pull request number comes from preview-meta.json in the artifact (workflow_run.pull_requests is empty for a fork) and is checked as a positive integer, the head commit is checked against the run's. Every ${{ }} value reaches a script through env. The preview repository is written with a GitHub App installation token (vars.AUTOMATION_APP_ID, secrets.AUTOMATION_APP_PRIVATE_KEY); without the app the run ends green and says so.
+# Security: this run never checks out code and executes nothing from the artifact; the artifact is files only. The build ran the pull request's own code, its indexing check included, so this run makes every page of the artifact unindexable with its own shell before it publishes anything, and every path must be a regular file or a folder. The pull request number comes from preview-meta.json in the artifact (workflow_run.pull_requests is empty for a fork) and is checked as a positive integer, the head commit is checked against the run's. Every ${{ }} value reaches a script through env. The preview repository is written with a GitHub App installation token (vars.AUTOMATION_APP_ID, secrets.AUTOMATION_APP_PRIVATE_KEY); without the app the run ends green and says so.
 on:
   workflow_run:
     workflows: [ "Preview build" ]
@@ -201,6 +201,8 @@ jobs:
         # A symlink could point outside pr-<N>/, and Pages would serve what it points to; only regular files and folders are committed.
         odd="$(find "pr-$PR_NUMBER" ! -type f ! -type d)"
         if [ -n "$odd" ]; then echo "::error::the copied preview holds paths that are not regular files or folders"; exit 1; fi
+        # This run writes the build marker after the artifact checks, so the allowlist does not apply to it; it changes pr-<N>/ on every publish, so a rebuild renews the date the cleanup reads.
+        printf '%s %s\n' "$HEAD_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "pr-$PR_NUMBER/.preview-build"
         git add -A "pr-$PR_NUMBER"
         if git diff --cached --quiet; then echo "pr-$PR_NUMBER/ is already this build"; exit 0; fi
         git commit -q -m "Preview of $REPOSITORY#$PR_NUMBER at $HEAD_SHA"
@@ -238,7 +240,7 @@ jobs:
         set -euo pipefail
         marker='<!-- frontx-showcase-preview -->'
         url="https://$OWNER.github.io/$NAME/pr-$PR_NUMBER/"
-        body="$(printf '%s\n**Preview:** %s\n\nBuilt from %s. Pages may take a few minutes to serve a new build. The preview is not indexed; it is removed when this pull request closes, or after %s days without a new build. The Markdown copies of the pages are not published in a preview.' "$marker" "$url" "$HEAD_SHA" "$RETENTION")"
+        body="$(printf '%s\n**Preview:** %s\n\nBuilt from %s. Pages may take a few minutes to serve a new build. Its pages are not indexed (an SVG or JSON file may be); it is removed when this pull request closes, or after %s days without a new build (a re-run of a build counts as one). The Markdown copies of the pages are not published in a preview.' "$marker" "$url" "$HEAD_SHA" "$RETENTION")"
         bot="${APP_SLUG}[bot]"
         existing="$(gh api --paginate "/repos/$REPOSITORY/issues/$PR_NUMBER/comments" --jq ".[] | select(.user.login == \"$bot\" and (.body | contains(\"$marker\"))) | .id" | sed -n 1p)"
         if [ -n "$existing" ]; then
