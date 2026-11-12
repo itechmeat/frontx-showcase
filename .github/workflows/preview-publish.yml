@@ -1,7 +1,7 @@
 name: Preview publish
 
 # Publishes the artifact of a successful "Preview build" run of a pull request into the preview repository (vars.PREVIEW_REPOSITORY, constructorfabric/frontx-showcase-previews by default) as pr-<N>/, served by its GitHub Pages at https://<owner>.github.io/<name>/pr-<N>/, and keeps one comment on the pull request that names it.
-# Security: this run never checks out code and executes nothing from the artifact; the artifact is files only. The build ran the pull request's own code, its indexing check included, so this run checks the artifact again with its own shell before it publishes anything: no page may be indexed, and every path is a regular file or a folder. The pull request number comes from preview-meta.json in the artifact (workflow_run.pull_requests is empty for a fork) and is checked as a positive integer, the head commit is checked against the run's. Every ${{ }} value reaches a script through env. The preview repository is written with a GitHub App installation token (vars.AUTOMATION_APP_ID, secrets.AUTOMATION_APP_PRIVATE_KEY); without the app the run ends green and says so.
+# Security: this run never checks out code and executes nothing from the artifact; the artifact is files only. The build ran the pull request's own code, its indexing check included, so this run makes the artifact unindexable with its own shell before it publishes anything, and every path must be a regular file or a folder. The pull request number comes from preview-meta.json in the artifact (workflow_run.pull_requests is empty for a fork) and is checked as a positive integer, the head commit is checked against the run's. Every ${{ }} value reaches a script through env. The preview repository is written with a GitHub App installation token (vars.AUTOMATION_APP_ID, secrets.AUTOMATION_APP_PRIVATE_KEY); without the app the run ends green and says so.
 on:
   workflow_run:
     workflows: [ "Preview build" ]
@@ -66,9 +66,10 @@ jobs:
         run-id: ${{ github.event.workflow_run.id }}
         github-token: ${{ github.token }}
 
-    # The same rules as `node scripts/indexing-check.mjs unindexed` in "Preview build", checked again here: that build ran the pull request's code, which a pull request can change, so only this file's own shell decides. Nothing from the artifact or the pull request runs.
+    # Threat model: the artifact was built by the pull request's own code, from a fork or a branch, so this run trusts none of it; it does not control what a preview page shows, only that none is indexed.
+    # How: its own robots meta goes in right after the opening doctype of every page, where nothing earlier in the file can hide it, and it writes robots.txt and drops sitemap.xml and llms.txt itself; nothing from the artifact or the pull request runs.
     # The size limit of "Preview build" is enforced here for the same reason: the preview repository's Pages site, 1 GB for every open preview, takes at most MAX_MB from one.
-    - name: Check no page of the artifact may be indexed
+    - name: Make every page of the artifact unindexable
       if: steps.config.outputs.configured == 'true'
       env:
         MAX_MB: 150
@@ -79,141 +80,27 @@ jobs:
         if [ -n "$odd" ]; then echo "::error::the artifact holds paths that are not regular files or folders: $(printf '%s' "$odd" | tr '\n' ' ')"; exit 1; fi
         size="$(du -sm . | cut -f1)"
         if [ "$size" -gt "$MAX_MB" ]; then echo "::error::the artifact is $size MB, over the $MAX_MB MB a preview may take"; exit 1; fi
-        failed=0
-        fail() { echo "::error::$1"; failed=1; }
-        if [ ! -f robots.txt ] || [ "$(cat robots.txt)" != "$(printf 'User-agent: *\nDisallow: /')" ]; then fail 'robots.txt is not "User-agent: *" and "Disallow: /"'; fi
-        if [ -f sitemap.xml ] && grep -qi '<loc' sitemap.xml; then fail 'sitemap.xml lists an address'; fi
-        if [ -e llms.txt ]; then fail 'llms.txt is published'; fi
-        # The robots tags and the page map are parsed, not grepped, by this file's own script read from stdin: it imports only node: builtins, so nothing in the artifact is loaded or run. It does what scripts/indexing-check.mjs does on the build side, which this run cannot import, because it checks out nothing.
-        if ! node --input-type=module - <<'NODE'; then failed=1; fi
-        import fs from 'node:fs';
-        import path from 'node:path';
-        const findings = [];
-        const fail = (message) => findings.push(message);
-        // A value from the artifact is printed JSON-quoted, so it cannot start a workflow command on a line of its own.
-        const show = (value) => JSON.stringify(String(value).slice(0, 200));
-        const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'plaintext']);
-        const INERT = new Set(['template', 'noscript']);
-        // The start tags of a document as the HTML tokenizer reads them: comments, doctypes and the text of raw-text elements are no tags, a "<" inside an attribute value starts none, and a tag inside <template> or <noscript> is inert (neither head-sync nor a rendering crawler reads it). A raw-text element keeps its text.
-        function startTags(html) {
-          const tags = [];
-          let inert = 0;
-          let i = 0;
-          while ((i = html.indexOf('<', i)) !== -1) {
-            if (html.startsWith('<!--', i)) {
-              if (html.startsWith('>', i + 4)) i += 5;
-              else if (html.startsWith('->', i + 4)) i += 6;
-              else { const close = html.indexOf('-->', i + 4); i = close === -1 ? html.length : close + 3; }
-              continue;
-            }
-            if (html[i + 1] === '!' || html[i + 1] === '?') { const close = html.indexOf('>', i); i = close === -1 ? html.length : close + 1; continue; }
-            const closing = html[i + 1] === '/';
-            const nameRule = /[a-zA-Z][^\s/>]*/y;
-            nameRule.lastIndex = i + (closing ? 2 : 1);
-            const nameMatch = nameRule.exec(html);
-            if (!nameMatch) { i += 1; continue; }
-            const name = nameMatch[0].toLowerCase();
-            const attrs = [];
-            let j = nameRule.lastIndex;
-            while (j < html.length && html[j] !== '>') {
-              if (/[\s/]/.test(html[j])) { j += 1; continue; }
-              const attrRule = /[^\s/>][^\s/>=]*/y;
-              attrRule.lastIndex = j;
-              const attrName = attrRule.exec(html)[0].toLowerCase();
-              j = attrRule.lastIndex;
-              while (/\s/.test(html[j] ?? '')) j += 1;
-              let value = '';
-              if (html[j] === '=') {
-                j += 1;
-                while (/\s/.test(html[j] ?? '')) j += 1;
-                const quote = html[j];
-                if (quote === '"' || quote === "'") {
-                  const close = html.indexOf(quote, j + 1);
-                  value = html.slice(j + 1, close === -1 ? html.length : close);
-                  j = close === -1 ? html.length : close + 1;
-                } else {
-                  const valueRule = /[^\s>]*/y;
-                  valueRule.lastIndex = j;
-                  value = valueRule.exec(html)[0];
-                  j = valueRule.lastIndex;
-                }
-              }
-              attrs.push({ name: attrName, value });
-            }
-            i = j + 1;
-            if (closing) { if (INERT.has(name)) inert = Math.max(0, inert - 1); continue; }
-            const tag = { name, attrs, inert: inert > 0 };
-            tags.push(tag);
-            if (INERT.has(name)) inert += 1;
-            if (RAW_TEXT.has(name)) {
-              const endRule = new RegExp(`</${name}[\\s/>]`, 'ig');
-              endRule.lastIndex = i;
-              const end = name === 'plaintext' ? null : endRule.exec(html);
-              tag.text = html.slice(i, end ? end.index : html.length);
-              i = end ? end.index : html.length;
-            }
-          }
-          return tags;
-        }
-        // An attribute's first value is the one a browser keeps; a robots name is recognized through numeric character references, and one with any other "&" is taken as robots, so it must say noindex too.
-        const first = (tag, name) => tag.attrs.find((attr) => attr.name === name)?.value;
-        const decode = (value) => value.replace(/&#(x[0-9a-f]+|[0-9]+);?/gi, (_, code) => String.fromCodePoint(Number(code[0].toLowerCase() === 'x' ? `0${code}` : code)));
-        const isRobots = (tag) => tag.name === 'meta' && tag.attrs.some((attr) => attr.name === 'name' && /^robots$|&/.test(decode(attr.value).trim().toLowerCase()));
-        const saysNoindex = (tag) => tag.attrs.some((attr) => attr.name === 'content') && tag.attrs.filter((attr) => attr.name === 'content').every((attr) => attr.value.split(',').map((token) => token.trim().toLowerCase()).includes('noindex'));
-        function htmlFiles(dir) {
-          return fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap((entry) => {
-            const file = path.join(dir, entry.name);
-            if (entry.isDirectory()) return htmlFiles(file);
-            return entry.isFile() && /\.html?$/i.test(entry.name) ? [file] : [];
-          });
-        }
-        // Every HTML file has a robots tag a browser reads, and every robots tag it holds, inert or not, has the token noindex.
-        for (const file of htmlFiles('.')) {
-          const robots = startTags(fs.readFileSync(file, 'utf8')).filter(isRobots);
-          if (!robots.some((tag) => !tag.inert)) fail(`${show(file)}: no robots tag`);
-          for (const tag of robots) if (!saysNoindex(tag)) fail(`${show(file)}: robots is ${show(first(tag, 'content') ?? 'without content')}, not noindex`);
-        }
-        // The page map head-sync reads: the one element of index.html with the id site-meta-map, a script whose text is JSON. Every page of it, the home page, the fallback, every screen's pages and pattern routes, and any other entry that carries "indexable", is indexable: false.
-        const index = fs.existsSync('index.html') ? startTags(fs.readFileSync('index.html', 'utf8')) : [];
-        const holders = index.filter((tag) => !tag.inert && first(tag, 'id') === 'site-meta-map');
-        let map;
-        if (holders.length !== 1 || holders[0].name !== 'script') fail(`index.html carries ${holders.length} elements with the id site-meta-map, not one script`);
-        else {
-          try { map = JSON.parse(holders[0].text); } catch (error) { fail(`the page map of index.html is not JSON: ${show(error.message)}`); }
-        }
-        if (map !== undefined) {
-          const pages = [];
-          const seen = new Set();
-          const add = (page, name) => {
-            if (typeof page === 'object' && page !== null) { if (seen.has(page)) return; seen.add(page); }
-            pages.push([page, name]);
-          };
-          const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
-          if (!isRecord(map)) fail('the page map of index.html is not an object');
-          else {
-            add(map.home, 'home');
-            add(map.fallback, 'fallback');
-            if (!isRecord(map.screens)) fail('the page map of index.html has no screens');
-            else for (const [token, screen] of Object.entries(map.screens)) {
-              if (!isRecord(screen?.pages)) fail(`page map: screen ${show(token)} has no pages`);
-              else for (const [route, page] of Object.entries(screen.pages)) add(page, `${token} ${route}`);
-              if (!Array.isArray(screen?.patterns)) fail(`page map: screen ${show(token)} has no patterns`);
-              else screen.patterns.forEach((page, n) => add(page, `${token} pattern ${n}`));
-            }
-            const walk = (value, where) => {
-              if (typeof value !== 'object' || value === null) return;
-              if (!Array.isArray(value) && Object.hasOwn(value, 'indexable')) add(value, where);
-              for (const [key, child] of Object.entries(value)) walk(child, `${where}.${key}`);
-            };
-            walk(map, 'map');
-            for (const [page, name] of pages) if (page?.indexable !== false) fail(`page map: ${show(name)} is indexable`);
-          }
-        }
-        for (const finding of findings) console.log(`::error::${finding}`);
-        process.exit(findings.length > 0 ? 1 : 0);
-        NODE
-        if [ "$failed" -ne 0 ]; then exit 1; fi
-        echo "no page of the artifact may be indexed"
+        export LC_ALL=C
+        # A path from the artifact is printed shell-quoted and cut to 200 characters, so it cannot start a workflow command on a line of its own.
+        show() { printf '%q' "${1:0:200}"; }
+        doctype='<!doctype html>'
+        meta='<meta name="robots" content="noindex, nofollow">'
+        other="$(find . -type f \( -iname '*.xhtml' -o -iname '*.shtml' \) -print -quit)"
+        if [ -n "$other" ]; then echo "::error::the artifact holds $(show "$other"), a page this run does not make unindexable"; exit 1; fi
+        while IFS= read -r -d '' page; do
+          if [ "$(head -c 15 "$page" | tr '[:upper:]' '[:lower:]')" != "$doctype" ]; then echo "::error::$(show "$page") does not start with $doctype"; exit 1; fi
+          written="$(mktemp)"
+          { head -c 15 "$page"; printf '%s' "$meta"; tail -c +16 "$page"; } > "$written"
+          mv -f "$written" "$page"
+        done < <(find . -type f \( -iname '*.html' -o -iname '*.htm' \) -print0)
+        printf 'User-agent: *\nDisallow: /' > robots.txt
+        rm -f sitemap.xml llms.txt
+        while IFS= read -r -d '' page; do
+          if [ "$(head -c 63 "$page" | tr '[:upper:]' '[:lower:]')" != "$doctype$meta" ]; then echo "::error::$(show "$page") does not start with its robots meta"; exit 1; fi
+        done < <(find . -type f \( -iname '*.html' -o -iname '*.htm' \) -print0)
+        if [ "$(cat robots.txt)" != "$(printf 'User-agent: *\nDisallow: /')" ]; then echo "::error::robots.txt is not the one this run wrote"; exit 1; fi
+        if [ -e sitemap.xml ] || [ -e llms.txt ]; then echo "::error::sitemap.xml or llms.txt is still there"; exit 1; fi
+        echo "every page of the artifact is noindex"
 
     - name: Read the pull request
       if: steps.config.outputs.configured == 'true'
