@@ -185,7 +185,7 @@ function filesUnder(dir, skip = new Set(), prefix = '') {
  * Where the built site still carries an unpublished screen, as messages; empty when nothing does.
  * - `dist/mfe/` holds a remote of a package whose every screen is unpublished;
  * - a generated text file of `dist/` (the document with its page map, the aggregate, the discovery files, the twins) names an unpublished screen's address (`?screen=<token>`) outside code, where a quoted source file may mention one; a generated machine file (the document, the aggregate, the manifests, the sitemap) names its extension id;
- * - a published screen package's data (its JSON files under `src/`, strings included) names such an address outside code, or its outline, pruned as the page shows it, still links such a screen.
+ * - a published screen package's sources under `src/` (tests aside) name such an address: its JSON data outside code, strings included, its TypeScript and Markdown anywhere, code included, since that code is what ships; or its outline, pruned as the page shows it, still links such a screen.
  * - the shell's own sources or the screens' shared content (`src-app/app/`, `src-app/mfe_packages/shared/`; TypeScript, JSON and Markdown, tests aside) name such an address anywhere, code included, since that code is what ships;
  * - a text the check reads opens a code fence that never closes, so it cannot tell its code from its links.
  * @param {string} siteDir - the site directory
@@ -227,9 +227,11 @@ export function unpublishedFindings(siteDir, composed, publishing) {
   const packagesDir = path.join(siteDir, 'src-app', 'mfe_packages');
   for (const packageDir of [...publishedPackages].sort()) {
     const dir = path.join(packagesDir, packageDir);
-    for (const file of filesUnder(path.join(dir, 'src')).filter((name) => name.endsWith('.json'))) {
+    for (const file of filesUnder(path.join(dir, 'src')).filter((name) => SOURCE_FILE.test(name) && !TEST_FILE.test(name))) {
       const label = `${packageDir}/src/${file.split(path.sep).join('/')}`;
-      const text = prose(label, fs.readFileSync(path.join(dir, 'src', file), 'utf8'));
+      const source = fs.readFileSync(path.join(dir, 'src', file), 'utf8');
+      // A data file's text is read outside code, where a quoted source may mention an address; a screen's code and Markdown are bundled as they are, so they are read whole, as the shell's are.
+      const text = file.endsWith('.json') ? prose(label, source) : source;
       if (text !== undefined) for (const { token, pattern } of addresses) if (pattern.test(text)) findings.push(`${label} links the unpublished screen ${token} (${composed.domainKey}=${token})`);
     }
     for (const name of OUTLINE_FILES.filter((candidate) => fs.existsSync(path.join(dir, candidate)))) {

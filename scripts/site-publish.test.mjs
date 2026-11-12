@@ -148,6 +148,13 @@ describe('unpublishedFindings', () => {
     ]);
   });
 
+  it("turns red on a literal address in a published screen's code, and leaves its tests aside", () => {
+    clean();
+    write('src-app/mfe_packages/home-mfe/src/comp.tsx', 'export const href = "?screen=kit";');
+    write('src-app/mfe_packages/home-mfe/src/comp.test.tsx', 'expect(href).toBe("?screen=kit");');
+    expect(findings()).toEqual(['home-mfe/src/comp.tsx links the unpublished screen kit (screen=kit)']);
+  });
+
   it('turns red on an outline link the pruning cannot take out', () => {
     clean();
     write('src-app/mfe_packages/home-mfe/src/content/outline.json', outline([{ type: 'custom', target: { extension: ext('kit') } }]));
