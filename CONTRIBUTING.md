@@ -52,7 +52,7 @@ npm run setup
 npm run policy:pins
 npm run site:data -- --check
 npm run shell:changes -- --check
-SITE_ORIGIN=http://localhost:4173 npm run build   # a production build reads origin from site.config.json instead
+SITE_ORIGIN=http://localhost:4173 npm run build   # a production build sets SITE_ORIGIN to its own address
 npm run seo:check
 npm run type-check
 npm run lint

@@ -858,7 +858,7 @@ Every piece below is a FrontX API used as FrontX intends it (FrontX ADR-0036, ex
 
 | Level | File | Fields |
 |---|---|---|
-| Site | `site.config.json` (repository root) | the origin the site is served from (required for a production build, overridable for a local preview or another address), the screens the production build leaves out (`unpublishedScreens`) and the outline entries it hides (`hiddenEntries`), the home screen, the footer's screens and its showcase-variant screens, the groups the header hides, the languages the site ships, the site name, short name and title template, the default description, the locale, the share image and its alternative text, the card type, the theme and background colours |
+| Site | `site.config.json` (repository root) | an optional origin the site is served from (this repository names none: every build sets `SITE_ORIGIN`, `pages.yml` to https://frontx.cfabric.org), the screens the production build leaves out (`unpublishedScreens`) and the outline entries it hides (`hiddenEntries`), the home screen, the footer's screens and its showcase-variant screens, the groups the header hides, the languages the site ships, the site name, short name and title template, the default description, the locale, the share image and its alternative text, the card type, the theme and background colours |
 | Screen | `seo` on the screen extension in the package's `mfe.json` | title, description, indexability (default true), share image (optional) |
 | Internal route | `seo.routes["<virtual path>"]` on the same extension | the same fields; a path with a parameter is a pattern and not indexable by default |
 
