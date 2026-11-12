@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# One group per pull request, so no publish of another pull request can replace this run while it waits. Overlapping pushes of other runs are handled by the 3 pull --rebase attempts; a publish of the same pull request that overlaps this run is handled by its open-state check.
+# One group per pull request, so no publish of another pull request can replace this run while it waits. Overlapping pushes of other runs are handled by the 3 pull --rebase attempts; a publish of the same pull request that runs its open-state check after the close is not published, and one whose check passed in the seconds before the close can leave a preview, which cleanup-previews in the preview repository removes after the retention period.
 concurrency:
   group: preview-remove-${{ github.event.pull_request.number }}
   cancel-in-progress: false

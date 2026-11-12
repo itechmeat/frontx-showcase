@@ -12,7 +12,7 @@ permissions:
   contents: read
   pull-requests: read
 
-# One group per pull request, so a newer pending run replaces only an older pending publish of the same pull request. The number is read from the artifact later, so the key is the head repository and branch, which name one open pull request into main. Overlapping pushes of other runs are handled by the 3 pull --rebase attempts; a publish that overlaps a remove of the same pull request is handled by the open-state check below.
+# One group per pull request, so a newer pending run replaces only an older pending publish of the same pull request. The number is read from the artifact later, so the key is the head repository and branch, which name one open pull request into main. Overlapping pushes of other runs are handled by the 3 pull --rebase attempts. A publish of a pull request already closed when the open-state check below runs is not published; one that closes in the seconds between that check and the push can leave a preview, which cleanup-previews in the preview repository removes after the retention period.
 concurrency:
   group: preview-publish-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
@@ -84,14 +84,134 @@ jobs:
         if [ ! -f robots.txt ] || [ "$(cat robots.txt)" != "$(printf 'User-agent: *\nDisallow: /')" ]; then fail 'robots.txt is not "User-agent: *" and "Disallow: /"'; fi
         if [ -f sitemap.xml ] && grep -qi '<loc' sitemap.xml; then fail 'sitemap.xml lists an address'; fi
         if [ -e llms.txt ]; then fail 'llms.txt is published'; fi
-        # Every robots tag of every HTML file says noindex, and each file has one; a tag may span lines.
-        while IFS= read -r -d '' file; do
-          tags="$(tr '\r\n' '  ' < "$file" | grep -oiE "<meta[^>]*name=[\"']?robots[^>]*>" || true)"
-          if [ -z "$tags" ] || printf '%s\n' "$tags" | grep -viq noindex; then fail "$file: robots is not noindex"; fi
-        done < <(find . -type f \( -iname '*.html' -o -iname '*.htm' \) -print0)
-        # The page map head-sync reads marks each page "indexable"; a preview has none true.
-        if [ ! -f index.html ] || ! grep -q 'id="site-meta-map"' index.html; then fail 'index.html carries no page map'
-        elif tr '\r\n' '  ' < index.html | grep -qE '"indexable"[[:space:]]*:[[:space:]]*true'; then fail 'the page map of index.html has an indexable page'; fi
+        # The robots tags and the page map are parsed, not grepped, by this file's own script read from stdin: it imports only node: builtins, so nothing in the artifact is loaded or run. It does what scripts/indexing-check.mjs does on the build side, which this run cannot import, because it checks out nothing.
+        if ! node --input-type=module - <<'NODE'; then failed=1; fi
+        import fs from 'node:fs';
+        import path from 'node:path';
+        const findings = [];
+        const fail = (message) => findings.push(message);
+        // A value from the artifact is printed JSON-quoted, so it cannot start a workflow command on a line of its own.
+        const show = (value) => JSON.stringify(String(value).slice(0, 200));
+        const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'plaintext']);
+        const INERT = new Set(['template', 'noscript']);
+        // The start tags of a document as the HTML tokenizer reads them: comments, doctypes and the text of raw-text elements are no tags, a "<" inside an attribute value starts none, and a tag inside <template> or <noscript> is inert (neither head-sync nor a rendering crawler reads it). A raw-text element keeps its text.
+        function startTags(html) {
+          const tags = [];
+          let inert = 0;
+          let i = 0;
+          while ((i = html.indexOf('<', i)) !== -1) {
+            if (html.startsWith('<!--', i)) {
+              if (html.startsWith('>', i + 4)) i += 5;
+              else if (html.startsWith('->', i + 4)) i += 6;
+              else { const close = html.indexOf('-->', i + 4); i = close === -1 ? html.length : close + 3; }
+              continue;
+            }
+            if (html[i + 1] === '!' || html[i + 1] === '?') { const close = html.indexOf('>', i); i = close === -1 ? html.length : close + 1; continue; }
+            const closing = html[i + 1] === '/';
+            const nameRule = /[a-zA-Z][^\s/>]*/y;
+            nameRule.lastIndex = i + (closing ? 2 : 1);
+            const nameMatch = nameRule.exec(html);
+            if (!nameMatch) { i += 1; continue; }
+            const name = nameMatch[0].toLowerCase();
+            const attrs = [];
+            let j = nameRule.lastIndex;
+            while (j < html.length && html[j] !== '>') {
+              if (/[\s/]/.test(html[j])) { j += 1; continue; }
+              const attrRule = /[^\s/>][^\s/>=]*/y;
+              attrRule.lastIndex = j;
+              const attrName = attrRule.exec(html)[0].toLowerCase();
+              j = attrRule.lastIndex;
+              while (/\s/.test(html[j] ?? '')) j += 1;
+              let value = '';
+              if (html[j] === '=') {
+                j += 1;
+                while (/\s/.test(html[j] ?? '')) j += 1;
+                const quote = html[j];
+                if (quote === '"' || quote === "'") {
+                  const close = html.indexOf(quote, j + 1);
+                  value = html.slice(j + 1, close === -1 ? html.length : close);
+                  j = close === -1 ? html.length : close + 1;
+                } else {
+                  const valueRule = /[^\s>]*/y;
+                  valueRule.lastIndex = j;
+                  value = valueRule.exec(html)[0];
+                  j = valueRule.lastIndex;
+                }
+              }
+              attrs.push({ name: attrName, value });
+            }
+            i = j + 1;
+            if (closing) { if (INERT.has(name)) inert = Math.max(0, inert - 1); continue; }
+            const tag = { name, attrs, inert: inert > 0 };
+            tags.push(tag);
+            if (INERT.has(name)) inert += 1;
+            if (RAW_TEXT.has(name)) {
+              const endRule = new RegExp(`</${name}[\\s/>]`, 'ig');
+              endRule.lastIndex = i;
+              const end = name === 'plaintext' ? null : endRule.exec(html);
+              tag.text = html.slice(i, end ? end.index : html.length);
+              i = end ? end.index : html.length;
+            }
+          }
+          return tags;
+        }
+        // An attribute's first value is the one a browser keeps; a robots name is recognized through numeric character references, and one with any other "&" is taken as robots, so it must say noindex too.
+        const first = (tag, name) => tag.attrs.find((attr) => attr.name === name)?.value;
+        const decode = (value) => value.replace(/&#(x[0-9a-f]+|[0-9]+);?/gi, (_, code) => String.fromCodePoint(Number(code[0].toLowerCase() === 'x' ? `0${code}` : code)));
+        const isRobots = (tag) => tag.name === 'meta' && tag.attrs.some((attr) => attr.name === 'name' && /^robots$|&/.test(decode(attr.value).trim().toLowerCase()));
+        const saysNoindex = (tag) => tag.attrs.some((attr) => attr.name === 'content') && tag.attrs.filter((attr) => attr.name === 'content').every((attr) => attr.value.split(',').map((token) => token.trim().toLowerCase()).includes('noindex'));
+        function htmlFiles(dir) {
+          return fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap((entry) => {
+            const file = path.join(dir, entry.name);
+            if (entry.isDirectory()) return htmlFiles(file);
+            return entry.isFile() && /\.html?$/i.test(entry.name) ? [file] : [];
+          });
+        }
+        // Every HTML file has a robots tag a browser reads, and every robots tag it holds, inert or not, has the token noindex.
+        for (const file of htmlFiles('.')) {
+          const robots = startTags(fs.readFileSync(file, 'utf8')).filter(isRobots);
+          if (!robots.some((tag) => !tag.inert)) fail(`${show(file)}: no robots tag`);
+          for (const tag of robots) if (!saysNoindex(tag)) fail(`${show(file)}: robots is ${show(first(tag, 'content') ?? 'without content')}, not noindex`);
+        }
+        // The page map head-sync reads: the one element of index.html with the id site-meta-map, a script whose text is JSON. Every page of it, the home page, the fallback, every screen's pages and pattern routes, and any other entry that carries "indexable", is indexable: false.
+        const index = fs.existsSync('index.html') ? startTags(fs.readFileSync('index.html', 'utf8')) : [];
+        const holders = index.filter((tag) => !tag.inert && first(tag, 'id') === 'site-meta-map');
+        let map;
+        if (holders.length !== 1 || holders[0].name !== 'script') fail(`index.html carries ${holders.length} elements with the id site-meta-map, not one script`);
+        else {
+          try { map = JSON.parse(holders[0].text); } catch (error) { fail(`the page map of index.html is not JSON: ${show(error.message)}`); }
+        }
+        if (map !== undefined) {
+          const pages = [];
+          const seen = new Set();
+          const add = (page, name) => {
+            if (typeof page === 'object' && page !== null) { if (seen.has(page)) return; seen.add(page); }
+            pages.push([page, name]);
+          };
+          const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+          if (!isRecord(map)) fail('the page map of index.html is not an object');
+          else {
+            add(map.home, 'home');
+            add(map.fallback, 'fallback');
+            if (!isRecord(map.screens)) fail('the page map of index.html has no screens');
+            else for (const [token, screen] of Object.entries(map.screens)) {
+              if (!isRecord(screen?.pages)) fail(`page map: screen ${show(token)} has no pages`);
+              else for (const [route, page] of Object.entries(screen.pages)) add(page, `${token} ${route}`);
+              if (!Array.isArray(screen?.patterns)) fail(`page map: screen ${show(token)} has no patterns`);
+              else screen.patterns.forEach((page, n) => add(page, `${token} pattern ${n}`));
+            }
+            const walk = (value, where) => {
+              if (typeof value !== 'object' || value === null) return;
+              if (!Array.isArray(value) && Object.hasOwn(value, 'indexable')) add(value, where);
+              for (const [key, child] of Object.entries(value)) walk(child, `${where}.${key}`);
+            };
+            walk(map, 'map');
+            for (const [page, name] of pages) if (page?.indexable !== false) fail(`page map: ${show(name)} is indexable`);
+          }
+        }
+        for (const finding of findings) console.log(`::error::${finding}`);
+        process.exit(findings.length > 0 ? 1 : 0);
+        NODE
         if [ "$failed" -ne 0 ]; then exit 1; fi
         echo "no page of the artifact may be indexed"
 
@@ -110,7 +230,7 @@ jobs:
         echo "number=$number" >> "$GITHUB_OUTPUT"
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-    # A build that finishes after its pull request closed, or a publish run re-run by hand, would bring back the preview "Preview remove" took down.
+    # A build that finishes after its pull request closed, or a publish run re-run by hand, would bring back the preview "Preview remove" took down. The pull request's head commit must also be the commit this run built: the number comes from the artifact, which the build could forge, and no other pull request's head is this run's commit, so a build cannot publish as another open pull request. A build overtaken by a newer push is not published either; the newer build publishes.
     - name: Check the pull request is open
       if: steps.config.outputs.configured == 'true'
       id: state
@@ -119,9 +239,16 @@ jobs:
         PR_NUMBER: ${{ steps.pr.outputs.number }}
       run: |
         set -euo pipefail
-        state="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .state)"
+        pull="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '[.state, .head.sha] | @tsv')"
+        state="$(printf '%s' "$pull" | cut -f1)"
+        head="$(printf '%s' "$pull" | cut -f2)"
         if [ "$state" != open ]; then
           echo "Pull request #$PR_NUMBER is closed; the preview is not published" >> "$GITHUB_STEP_SUMMARY"
+          echo "open=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ "$head" != "$RUN_HEAD_SHA" ]; then
+          echo "Pull request #$PR_NUMBER has moved past this build; the preview is not published" >> "$GITHUB_STEP_SUMMARY"
           echo "open=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
