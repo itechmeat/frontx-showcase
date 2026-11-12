@@ -56,6 +56,15 @@ jobs:
     - name: Check no page may be indexed
       run: node scripts/indexing-check.mjs unindexed
 
+    # Every open preview shares the Pages site of the preview repository, which GitHub limits to 1 GB; today a build is about 15 MB, and about 45 MB with every screen published.
+    - name: Check the build size
+      env:
+        MAX_MB: 150
+      run: |
+        size="$(du -sm site/dist | cut -f1)"
+        if [ "$size" -gt "$MAX_MB" ]; then echo "::error::site/dist is $size MB, over the $MAX_MB MB a preview may take"; exit 1; fi
+        echo "site/dist is $size MB"
+
     - name: Record the pull request
       run: |
         jq -n --argjson pr "$PR_NUMBER" --arg sha "$HEAD_SHA" '{ pr_number: $pr, head_sha: $sha }' > site/dist/preview-meta.json

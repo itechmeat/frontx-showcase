@@ -1,7 +1,7 @@
 name: Preview publish
 
 # Publishes the artifact of a successful "Preview build" run of a pull request into the preview repository (vars.PREVIEW_REPOSITORY, constructorfabric/frontx-showcase-previews by default) as pr-<N>/, served by its GitHub Pages at https://<owner>.github.io/<name>/pr-<N>/, and keeps one comment on the pull request that names it.
-# Security: this run never checks out code and executes nothing from the artifact; the artifact is files only. The pull request number comes from preview-meta.json in the artifact (workflow_run.pull_requests is empty for a fork) and is checked as a positive integer, the head commit is checked against the run's. Every ${{ }} value reaches a script through env. The preview repository is written with a GitHub App installation token (vars.AUTOMATION_APP_ID, secrets.AUTOMATION_APP_PRIVATE_KEY); without the app the run ends green and says so.
+# Security: this run never checks out code and executes nothing from the artifact; the artifact is files only. The build ran the pull request's own code, its indexing check included, so this run checks the artifact again with its own shell before it publishes anything: no page may be indexed, and every path is a regular file or a folder. The pull request number comes from preview-meta.json in the artifact (workflow_run.pull_requests is empty for a fork) and is checked as a positive integer, the head commit is checked against the run's. Every ${{ }} value reaches a script through env. The preview repository is written with a GitHub App installation token (vars.AUTOMATION_APP_ID, secrets.AUTOMATION_APP_PRIVATE_KEY); without the app the run ends green and says so.
 on:
   workflow_run:
     workflows: [ "Preview build" ]
@@ -10,6 +10,7 @@ on:
 permissions:
   actions: read
   contents: read
+  pull-requests: read
 
 # One publication at a time: two pull requests pushing to the preview repository at once would race.
 concurrency:
@@ -65,6 +66,30 @@ jobs:
         run-id: ${{ github.event.workflow_run.id }}
         github-token: ${{ github.token }}
 
+    # The same rules as `node scripts/indexing-check.mjs unindexed` in "Preview build", checked again here: that build ran the pull request's code, which a pull request can change, so only this file's own shell decides. Nothing from the artifact or the pull request runs.
+    - name: Check no page of the artifact may be indexed
+      if: steps.config.outputs.configured == 'true'
+      run: |
+        set -euo pipefail
+        cd preview
+        odd="$(find . ! -type f ! -type d)"
+        if [ -n "$odd" ]; then echo "::error::the artifact holds paths that are not regular files or folders: $(printf '%s' "$odd" | tr '\n' ' ')"; exit 1; fi
+        failed=0
+        fail() { echo "::error::$1"; failed=1; }
+        if [ ! -f robots.txt ] || [ "$(cat robots.txt)" != "$(printf 'User-agent: *\nDisallow: /')" ]; then fail 'robots.txt is not "User-agent: *" and "Disallow: /"'; fi
+        if [ -f sitemap.xml ] && grep -qi '<loc' sitemap.xml; then fail 'sitemap.xml lists an address'; fi
+        if [ -e llms.txt ]; then fail 'llms.txt is published'; fi
+        # Every robots tag of every HTML file says noindex, and each file has one; a tag may span lines.
+        while IFS= read -r -d '' file; do
+          tags="$(tr '\r\n' '  ' < "$file" | grep -oiE "<meta[^>]*name=[\"']?robots[^>]*>" || true)"
+          if [ -z "$tags" ] || printf '%s\n' "$tags" | grep -viq noindex; then fail "$file: robots is not noindex"; fi
+        done < <(find . -type f \( -iname '*.html' -o -iname '*.htm' \) -print0)
+        # The page map head-sync reads marks each page "indexable"; a preview has none true.
+        if [ ! -f index.html ] || ! grep -q 'id="site-meta-map"' index.html; then fail 'index.html carries no page map'
+        elif tr '\r\n' '  ' < index.html | grep -qE '"indexable"[[:space:]]*:[[:space:]]*true'; then fail 'the page map of index.html has an indexable page'; fi
+        if [ "$failed" -ne 0 ]; then exit 1; fi
+        echo "no page of the artifact may be indexed"
+
     - name: Read the pull request
       if: steps.config.outputs.configured == 'true'
       id: pr
@@ -80,8 +105,25 @@ jobs:
         echo "number=$number" >> "$GITHUB_OUTPUT"
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-    - name: Create the app token
+    # A build that finishes after its pull request closed, or a publish run re-run by hand, would bring back the preview "Preview remove" took down.
+    - name: Check the pull request is open
       if: steps.config.outputs.configured == 'true'
+      id: state
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ steps.pr.outputs.number }}
+      run: |
+        set -euo pipefail
+        state="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .state)"
+        if [ "$state" != open ]; then
+          echo "Pull request #$PR_NUMBER is closed; the preview is not published" >> "$GITHUB_STEP_SUMMARY"
+          echo "open=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "open=true" >> "$GITHUB_OUTPUT"
+
+    - name: Create the app token
+      if: steps.config.outputs.configured == 'true' && steps.state.outputs.open == 'true'
       id: token
       uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
       with:
@@ -91,7 +133,7 @@ jobs:
         repositories: ${{ steps.config.outputs.name }},${{ github.event.repository.name }}
 
     - name: Publish pr-<N>/ to the preview repository
-      if: steps.config.outputs.configured == 'true'
+      if: steps.config.outputs.configured == 'true' && steps.state.outputs.open == 'true'
       env:
         GH_TOKEN: ${{ steps.token.outputs.token }}
         TARGET: ${{ steps.config.outputs.repository }}
@@ -112,6 +154,9 @@ jobs:
         rm -rf "pr-$PR_NUMBER"
         mkdir "pr-$PR_NUMBER"
         cp -R ../preview/. "pr-$PR_NUMBER/"
+        # A symlink could point outside pr-<N>/, and Pages would serve what it points to; only regular files and folders are committed.
+        odd="$(find "pr-$PR_NUMBER" ! -type f ! -type d)"
+        if [ -n "$odd" ]; then echo "::error::the copied preview holds paths that are not regular files or folders: $(printf '%s' "$odd" | tr '\n' ' ')"; exit 1; fi
         git add -A "pr-$PR_NUMBER"
         if git diff --cached --quiet; then echo "pr-$PR_NUMBER/ is already this build"; exit 0; fi
         git commit -q -m "Preview of $REPOSITORY#$PR_NUMBER at $HEAD_SHA"
@@ -125,7 +170,7 @@ jobs:
 
     # One comment per pull request, found by its hidden marker among the app's own comments and updated on every push. The REST API posts to the base repository's issue thread, which works for a pull request from a fork too.
     - name: Comment the preview address on the pull request
-      if: steps.config.outputs.configured == 'true'
+      if: steps.config.outputs.configured == 'true' && steps.state.outputs.open == 'true'
       env:
         GH_TOKEN: ${{ steps.token.outputs.token }}
         APP_SLUG: ${{ steps.token.outputs.app-slug }}
