@@ -195,7 +195,7 @@ Temporary: remove once FrontX templates share the UI kit across MFEs and the bui
 
 **Error Scenarios**:
 - A list is not one of non-empty strings, names a screen no composed package declares, names the home screen, or names a screen `footerScreens` links: the command fails naming it.
-- The check finds a remote of a package whose every screen is unpublished, an unpublished screen's address in a generated file, a twin or a published screen's data outside code, its extension id in a generated machine file, or a link to it that the published outline still holds: the build fails naming each.
+- The check finds a remote of a package whose every screen is unpublished, an unpublished screen's address in a generated file, a twin or a published screen's data outside code, or anywhere in the shell's sources and the shared content, a code fence that never closes, its extension id in a generated machine file, or a link to it that the published outline still holds: the build fails naming each.
 
 **Steps**:
 1. [x] - `p2` - Read the site config and the composed screens, and resolve what the build publishes (`cpt-site-algo-production-build-layout-publishing`) - `inst-load-choices`
@@ -281,9 +281,10 @@ Temporary: remove once FrontX templates share the UI kit across MFEs and the bui
 
 **Steps**:
 1. [x] - `p2` - **FOR EACH** package whose every screen is unpublished, **IF** `dist/mfe/<package>/` exists, report it - `inst-check-remotes`
-2. [x] - `p2` - **FOR EACH** text file of `dist/` outside the remotes and the host's assets (the document with its page map, the aggregate, the discovery files, the twins), report an unpublished screen's address (`?screen=<token>`) outside fenced and inline code, where a quoted source file may name one, and, in the generated machine files, its extension id - `inst-check-outputs`
+2. [x] - `p2` - **FOR EACH** text file of `dist/` outside the remotes and the host's assets (the document with its page map, the aggregate, the discovery files, the twins), report an unpublished screen's address (`?screen=<token>`) outside fenced and inline code, where a quoted source file may name one, and, in the generated machine files, its extension id; a fenced block counts as code only up to its matching closing fence and an inline code span only within one line, so a stray backtick cannot hide a link on another line, and a fence that never closes is reported, since the check cannot tell code from links after it - `inst-check-outputs`
 3. [x] - `p2` - **FOR EACH** package with a published screen, report an unpublished screen's address outside code in its JSON data under `src/`, strings included, and an unpublished screen's extension id its outline still holds after the pruning the page applies - `inst-check-content`
-4. [x] - `p2` - **RETURN** the messages - `inst-return-findings`
+4. [x] - `p2` - **FOR EACH** TypeScript, JSON and Markdown file of the shell's own sources (`site/src-app/app/`) and of the screens' shared content (`site/src-app/mfe_packages/shared/`), tests aside, report an unpublished screen's address anywhere in it, code included: that code is bundled into every page, and the scan of `dist/` skips the built code - `inst-check-shell`
+5. [x] - `p2` - **RETURN** the messages - `inst-return-findings`
 
 ### Check the indexing of a build
 

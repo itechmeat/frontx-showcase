@@ -125,6 +125,29 @@ describe('unpublishedFindings', () => {
     ]);
   });
 
+  it('turns red on a link between two stray backticks on other lines, and on a code fence that never closes', () => {
+    clean();
+    write('dist/home/index.md', 'A ` b\n[link](https://site.example/?screen=kit)\nC ` d\n');
+    write('src-app/mfe_packages/home-mfe/src/i18n/en.json', '{\n  "a": "```md",\n  "b": "[link](?screen=demo-a)"\n}\n');
+    write('dist/docs/index.md', 'Text\n\n```md\n[link](https://site.example/?screen=home)\n');
+    expect(findings()).toEqual([
+      'dist/docs/index.md: a code fence opened on line 3 never closes; the check cannot tell its code from its links',
+      'dist/home/index.md links the unpublished screen kit (screen=kit)',
+      'home-mfe/src/i18n/en.json links the unpublished screen demo-a (screen=demo-a)',
+    ]);
+  });
+
+  it("turns red on a literal address in the shell's sources and the shared content, and leaves their tests aside", () => {
+    clean();
+    write('src-app/app/layout/Header.tsx', 'export const kit = "/?screen=kit";');
+    write('src-app/app/layout/Header.test.tsx', 'expect(href).toBe("/?screen=kit");');
+    write('src-app/mfe_packages/shared/site/content/links.ts', "export const demo = '?screen=demo-b;route=/';");
+    expect(findings()).toEqual([
+      'src-app/app/layout/Header.tsx links the unpublished screen kit (screen=kit)',
+      'src-app/mfe_packages/shared/site/content/links.ts links the unpublished screen demo-b (screen=demo-b)',
+    ]);
+  });
+
   it('turns red on an outline link the pruning cannot take out', () => {
     clean();
     write('src-app/mfe_packages/home-mfe/src/content/outline.json', outline([{ type: 'custom', target: { extension: ext('kit') } }]));
@@ -136,5 +159,11 @@ describe('withoutCode', () => {
   it('drops fenced blocks and inline code, where an address is quoted text, and keeps links', () => {
     const text = 'See [it](https://x/?screen=kit).\n\n```md\nOpen /?screen=kit\n```\n\nMeasure on `/?screen=kit;route=a` and ``a `b` c``.';
     expect(withoutCode(text)).toBe('See [it](https://x/?screen=kit).\n\n\n\nMeasure on  and .');
+  });
+
+  it('strips a code span only within one line and a fence only up to its matching close, and throws on a fence that never closes', () => {
+    expect(withoutCode('A ` b\n[link](https://x/?screen=kit)\nC ` d')).toBe('A ` b\n[link](https://x/?screen=kit)\nC ` d');
+    expect(withoutCode('````md\n```\n?screen=kit\n````\nafter')).toBe('\nafter');
+    expect(() => withoutCode('text\n```md\n?screen=kit\n')).toThrow('a code fence opened on line 2 never closes');
   });
 });

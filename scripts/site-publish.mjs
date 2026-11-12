@@ -20,6 +20,11 @@ const CODE_DIRS = new Set(['mfe', 'assets']);
 /** The text files of dist/ the check reads; in the generated machine files (the document with its page map, the aggregate, the discovery files) an extension id is a registration too. */
 const TEXT_FILE = /\.(html|md|txt|xml|json|webmanifest)$/;
 const MACHINE_FILE = /\.(html|xml|json|webmanifest)$/;
+/** The shell's own sources and the content the screens share, relative to the site: their code is bundled into every page, so a literal address in it is a link the dist scan cannot see (it skips the built code). */
+const SHELL_SOURCE_DIRS = [['src-app', 'app'], ['src-app', 'mfe_packages', 'shared']];
+const SOURCE_FILE = /\.(ts|tsx|json|md)$/;
+/** Tests are not bundled, and may plant an address on purpose. */
+const TEST_FILE = /\.test\.[^/\\]+$/;
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const NOT_A_PACKAGE = (name) => name === 'shared' || name.startsWith('.');
@@ -141,9 +146,26 @@ function addressPattern(domainKey, token) {
   return new RegExp(`[?&;]${domainKey}=${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_-])`);
 }
 
-/** A text without its code: fenced blocks and inline code spans, where an address is quoted source text, not a link. */
+/**
+ * A text without its code: fenced blocks and inline code spans, where an address is quoted source text, not a link. A fenced block goes only between two matching fence lines and a code span only when it opens and closes on one line, so a stray backtick cannot hide a link on another line; a fence that never closes throws, so the check fails closed.
+ * @param {string} text
+ * @returns {string}
+ */
 export function withoutCode(text) {
-  return text.replace(/^(`{3,})[^\n]*\n[\s\S]*?^\1`*[ \t]*$/gm, '').replace(/(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, '');
+  const lines = text.split('\n');
+  const kept = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const fence = /^(`{3,})[^`]*$/.exec(lines[index])?.[1];
+    if (fence) {
+      const close = lines.findIndex((line, at) => at > index && new RegExp(`^${fence}\`*[ \\t\\r]*$`).test(line));
+      if (close === -1) throw new Error(`a code fence opened on line ${index + 1} never closes`);
+      kept.push('');
+      index = close;
+      continue;
+    }
+    kept.push(lines[index].replace(/(`+)(?!`).*?(?<!`)\1(?!`)/g, ''));
+  }
+  return kept.join('\n');
 }
 
 /** Every file under a folder, as paths relative to it, skipping the folders `skip` names at the top. */
@@ -164,6 +186,8 @@ function filesUnder(dir, skip = new Set(), prefix = '') {
  * - `dist/mfe/` holds a remote of a package whose every screen is unpublished;
  * - a generated text file of `dist/` (the document with its page map, the aggregate, the discovery files, the twins) names an unpublished screen's address (`?screen=<token>`) outside code, where a quoted source file may mention one; a generated machine file (the document, the aggregate, the manifests, the sitemap) names its extension id;
  * - a published screen package's data (its JSON files under `src/`, strings included) names such an address outside code, or its outline, pruned as the page shows it, still links such a screen.
+ * - the shell's own sources or the screens' shared content (`src-app/app/`, `src-app/mfe_packages/shared/`; TypeScript, JSON and Markdown, tests aside) name such an address anywhere, code included, since that code is what ships;
+ * - a text the check reads opens a code fence that never closes, so it cannot tell its code from its links.
  * @param {string} siteDir - the site directory
  * @param {{ domainKey: string, screens: { token: string, id: string, packageDir: string }[] }} composed - the composed screens
  * @param {{ unpublished: string[], hiddenScreens: string[], hiddenEntries: string[] }} publishing - what the build publishes
@@ -183,9 +207,18 @@ export function unpublishedFindings(siteDir, composed, publishing) {
   // @cpt-end:cpt-site-algo-production-build-layout-check-links:p2:inst-check-remotes
   // @cpt-begin:cpt-site-algo-production-build-layout-check-links:p2:inst-check-outputs
   const addresses = publishing.unpublished.map((token) => ({ token, pattern: addressPattern(composed.domainKey, token) }));
+  /** The text outside code, or undefined with a finding when the check cannot tell code from links. */
+  const prose = (label, text) => {
+    try {
+      return withoutCode(text);
+    } catch (error) {
+      findings.push(`${label}: ${error instanceof Error ? error.message : String(error)}; the check cannot tell its code from its links`);
+      return undefined;
+    }
+  };
   const scan = (label, text, ids) => {
-    const prose = withoutCode(text);
-    for (const { token, pattern } of addresses) if (pattern.test(prose)) findings.push(`${label} links the unpublished screen ${token} (${composed.domainKey}=${token})`);
+    const outside = prose(label, text);
+    if (outside !== undefined) for (const { token, pattern } of addresses) if (pattern.test(outside)) findings.push(`${label} links the unpublished screen ${token} (${composed.domainKey}=${token})`);
     if (ids) for (const id of publishing.hiddenScreens) if (text.includes(id)) findings.push(`${label} names the unpublished screen ${id}`);
   };
   for (const file of filesUnder(distDir, CODE_DIRS).filter((name) => TEXT_FILE.test(name))) scan(`dist/${file.split(path.sep).join('/')}`, fs.readFileSync(path.join(distDir, file), 'utf8'), MACHINE_FILE.test(file));
@@ -195,8 +228,9 @@ export function unpublishedFindings(siteDir, composed, publishing) {
   for (const packageDir of [...publishedPackages].sort()) {
     const dir = path.join(packagesDir, packageDir);
     for (const file of filesUnder(path.join(dir, 'src')).filter((name) => name.endsWith('.json'))) {
-      const text = withoutCode(fs.readFileSync(path.join(dir, 'src', file), 'utf8'));
-      for (const { token, pattern } of addresses) if (pattern.test(text)) findings.push(`${packageDir}/src/${file.split(path.sep).join('/')} links the unpublished screen ${token} (${composed.domainKey}=${token})`);
+      const label = `${packageDir}/src/${file.split(path.sep).join('/')}`;
+      const text = prose(label, fs.readFileSync(path.join(dir, 'src', file), 'utf8'));
+      if (text !== undefined) for (const { token, pattern } of addresses) if (pattern.test(text)) findings.push(`${label} links the unpublished screen ${token} (${composed.domainKey}=${token})`);
     }
     for (const name of OUTLINE_FILES.filter((candidate) => fs.existsSync(path.join(dir, candidate)))) {
       const shown = JSON.stringify(pruneOutline(readJson(path.join(dir, name)), publishing));
@@ -204,6 +238,15 @@ export function unpublishedFindings(siteDir, composed, publishing) {
     }
   }
   // @cpt-end:cpt-site-algo-production-build-layout-check-links:p2:inst-check-content
+  // @cpt-begin:cpt-site-algo-production-build-layout-check-links:p2:inst-check-shell
+  for (const parts of SHELL_SOURCE_DIRS) {
+    const dir = path.join(siteDir, ...parts);
+    for (const file of filesUnder(dir).filter((name) => SOURCE_FILE.test(name) && !TEST_FILE.test(name))) {
+      const text = fs.readFileSync(path.join(dir, file), 'utf8');
+      for (const { token, pattern } of addresses) if (pattern.test(text)) findings.push(`${[...parts, ...file.split(path.sep)].join('/')} links the unpublished screen ${token} (${composed.domainKey}=${token})`);
+    }
+  }
+  // @cpt-end:cpt-site-algo-production-build-layout-check-links:p2:inst-check-shell
   // @cpt-begin:cpt-site-algo-production-build-layout-check-links:p2:inst-return-findings
   return findings;
   // @cpt-end:cpt-site-algo-production-build-layout-check-links:p2:inst-return-findings

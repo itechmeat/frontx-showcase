@@ -53,7 +53,7 @@ Screens are addressed in the query string: `/?screen=<token>[;route=<path inside
 | `npm run dev` | Build the MFE packages, serve them and start the host, which also serves the pages' plain-text twins |
 | `npm run dev:smoke` | Run `npm run dev` until the host and every remote entry answer, then stop it |
 | `npm run build` | Assemble, build the site, lay the MFE remotes out in `site/dist/mfe/` (`npm run site:dist`; the result works from any static server, at the root or under a sub-path), generate the SEO outputs, the web manifest and the plain-text twins, then check that no unpublished screen is left (`npm run site:publish-check`); builds for `origin` in `site.config.json` (https://frontx.cfabric.org), or for `SITE_ORIGIN` (`SITE_ORIGIN=http://localhost:4173 npm run build` for a local preview); `SITE_INDEXING=off` builds a copy no page of which may be indexed |
-| `npm run site:publish-check` | After the build: fail when `site/dist` still carries a screen `unpublishedScreens` leaves out, a remote, a registration, an address or a link of it |
+| `npm run site:publish-check` | After the build: fail when `site/dist` still carries a screen `unpublishedScreens` leaves out, a remote, a registration, an address or a link of it, when the shell's sources or the shared content name its address, or when a text has a code fence that never closes |
 | `npm run seo:check` | Page metadata rules, and that the generated outputs in `site/dist/` match the sources |
 | `npm run type-check`, `npm run lint`, `npm run test:unit`, `npm run arch:deps` | Checks over the tooling and the site |
 | `npm run templates:validate` | `frontx validate` and the uniform-shape rules for every template |
