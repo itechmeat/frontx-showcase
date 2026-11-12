@@ -1,6 +1,6 @@
 name: Deploy site to GitHub Pages
 
-# The production site: every push to main builds site/dist for https://frontx.cfabric.org, checks that the build is indexable on that origin, and deploys it to GitHub Pages (the repository's Pages source is "GitHub Actions"; the custom domain is set in the Pages settings). A manual run redeploys the chosen ref; re-running an earlier green run puts its build back.
+# The production site: every push to main builds site/dist for https://frontx.cfabric.org, checks that the build is indexable on that origin, and deploys it to GitHub Pages (the repository's Pages source is "GitHub Actions"; the custom domain is set in the Pages settings). Only main is deployed: a run on any other ref, a manual run started from a branch included, fails before it builds. A manual run redeploys main; re-running an earlier green run puts its build back, and a revert in main deploys the reverted state.
 on:
   push:
     branches: [ main ]
@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One deployment at a time, and a deployment that started is never cancelled halfway.
 concurrency:
@@ -21,10 +19,21 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # configure-pages reads the repository's Pages settings; the build job never writes Pages.
+    permissions:
+      contents: read
+      pages: read
     env:
       SITE_ORIGIN: https://frontx.cfabric.org
       SITE_INDEXING: 'on'
     steps:
+    # The github-pages environment's branch policy admits only main today, but it is a setting; this check keeps a branch build off the production domain in code too.
+    - name: Check the run is on main
+      env:
+        REF: ${{ github.ref }}
+      run: |
+        if [ "$REF" != "refs/heads/main" ]; then echo "::error::Deploy site to GitHub Pages deploys only main, not this run's ref"; exit 1; fi
+
     - name: Checkout code
       uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       with:
@@ -68,8 +77,13 @@ jobs:
   deploy:
     name: Deploy
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only this job deploys, so only it may write Pages and request the OIDC token deploy-pages needs.
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
