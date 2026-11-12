@@ -45,7 +45,7 @@ jobs:
         if ! printf '%s' "$repository" | grep -Eq '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$'; then echo "::error::PREVIEW_REPOSITORY must be owner/name, not '$repository'"; exit 1; fi
         owner="${repository%%/*}"
         name="${repository#*/}"
-        # One installation token serves both repositories, so they share an owner.
+        # Both app tokens come from the app's installation on this owner, so the preview repository shares the owner.
         if [ "$owner" != "$REPOSITORY_OWNER" ]; then echo "::error::PREVIEW_REPOSITORY must belong to $REPOSITORY_OWNER, not $owner"; exit 1; fi
         retention="${PREVIEW_RETENTION_DAYS:-7}"
         if ! printf '%s' "$retention" | grep -Eq '^[1-9][0-9]*$'; then echo "::error::PREVIEW_RETENTION_DAYS must be a positive integer, not '$retention'"; exit 1; fi
@@ -69,6 +69,7 @@ jobs:
     # Threat model: the artifact was built by the pull request's own code, from a fork or a branch, so this run trusts none of it; it does not control what a preview page shows, only that none is indexed.
     # How: its own robots meta goes in right after the opening doctype of every page, where nothing earlier in the file can hide it, and it writes robots.txt and drops sitemap.xml and llms.txt itself; nothing from the artifact or the pull request runs.
     # Accepted residual window: a page's own script can change its robots meta after load, which a crawler indexing the rendered page would see.
+    # Only files with an extension in the step's allowlist are published, and the Markdown copies of the pages are removed, since Pages cannot mark them noindex; a search engine may still index an SVG or JSON file, an accepted window.
     # The size limit of "Preview build" is enforced here for the same reason: the preview repository's Pages site, 1 GB for every open preview, takes at most MAX_MB from one.
     - name: Make every page of the artifact unindexable
       if: steps.config.outputs.configured == 'true'
@@ -77,24 +78,39 @@ jobs:
       run: |
         set -euo pipefail
         cd preview
-        odd="$(find . ! -type f ! -type d)"
-        if [ -n "$odd" ]; then echo "::error::the artifact holds paths that are not regular files or folders: $(printf '%s' "$odd" | tr '\n' ' ')"; exit 1; fi
+        export LC_ALL=C
+        # An artifact value reaches a runner command line only when it is a plain path of at most 200 characters; any other name gets a fixed text, so it cannot forge a workflow command.
+        refuse() {
+          if [[ "$1" =~ ^[A-Za-z0-9._/-]{1,200}$ ]]; then echo "::error::$1 $2"; else echo "::error::the artifact holds a file with a name a preview may not publish"; fi
+          exit 1
+        }
+        odd="$(find . ! -type f ! -type d -print -quit)"
+        if [ -n "$odd" ]; then refuse "$odd" "is not a regular file or folder"; fi
         size="$(du -sm . | cut -f1)"
         if [ "$size" -gt "$MAX_MB" ]; then echo "::error::the artifact is $size MB, over the $MAX_MB MB a preview may take"; exit 1; fi
-        export LC_ALL=C
-        # A path from the artifact is printed shell-quoted and cut to 200 characters, so it cannot start a workflow command on a line of its own.
-        show() { printf '%q' "${1:0:200}"; }
+        # Pages cannot mark a Markdown file noindex, so the Markdown copies of the pages are not published.
+        find . -type f -iname '*.md' -delete
+        # The only list of the extensions a preview may publish. Of the other files only robots.txt, sitemap.xml and llms.txt at the root pass, and this run rewrites or removes them below.
+        allowed=' html htm js css json png svg woff2 ico webmanifest jpg jpeg webp avif gif '
+        while IFS= read -r -d '' file; do
+          case "$file" in ./robots.txt | ./sitemap.xml | ./llms.txt) continue ;; esac
+          base="${file##*/}"
+          case "$base" in *.*) ext="$(printf '%s' "${base##*.}" | tr '[:upper:]' '[:lower:]')" ;; *) ext='' ;; esac
+          if [ -z "$ext" ]; then refuse "$file" "has no extension"; fi
+          if ! [[ "$ext" =~ ^[a-z0-9]+$ ]]; then refuse "$file" "has an extension a preview may not publish"; fi
+          case "$allowed" in *" $ext "*) ;; *) refuse "$file" "has the extension .$ext, which a preview may not publish" ;; esac
+        done < <(find . -type f -print0)
         doctype='<!doctype html>'
         meta='<meta name="robots" content="noindex, nofollow">'
         other="$(find . -type f \( -iname '*.xhtml' -o -iname '*.shtml' -o -iname '*.xht' -o -iname '*.shtm' \) -print -quit)"
-        if [ -n "$other" ]; then echo "::error::the artifact holds $(show "$other"), a page this run does not make unindexable"; exit 1; fi
+        if [ -n "$other" ]; then refuse "$other" "is a page this run does not make unindexable"; fi
         while IFS= read -r -d '' file; do
           case "$(head -c 18 "$file" | tr '[:upper:]' '[:lower:]')" in
-            '<!doctype html>'* | $'\xef\xbb\xbf<!doctype html>'*) echo "::error::$(show "$file") starts like an HTML page but is not named .html or .htm"; exit 1 ;;
+            '<!doctype html>'* | $'\xef\xbb\xbf<!doctype html>'*) refuse "$file" "starts like an HTML page but is not named .html or .htm" ;;
           esac
         done < <(find . -type f ! -iname '*.html' ! -iname '*.htm' -print0)
         while IFS= read -r -d '' page; do
-          if [ "$(head -c 15 "$page" | tr '[:upper:]' '[:lower:]')" != "$doctype" ]; then echo "::error::$(show "$page") does not start with $doctype"; exit 1; fi
+          if [ "$(head -c 15 "$page" | tr '[:upper:]' '[:lower:]')" != "$doctype" ]; then refuse "$page" "does not start with $doctype"; fi
           written="$(mktemp)"
           { head -c 15 "$page"; printf '%s' "$meta"; tail -c +16 "$page"; } > "$written"
           mv -f "$written" "$page"
@@ -102,7 +118,7 @@ jobs:
         printf 'User-agent: *\nDisallow: /' > robots.txt
         rm -f sitemap.xml llms.txt
         while IFS= read -r -d '' page; do
-          if [ "$(head -c 63 "$page" | tr '[:upper:]' '[:lower:]')" != "$doctype$meta" ]; then echo "::error::$(show "$page") does not start with its robots meta"; exit 1; fi
+          if [ "$(head -c 63 "$page" | tr '[:upper:]' '[:lower:]')" != "$doctype$meta" ]; then refuse "$page" "does not start with its robots meta"; fi
         done < <(find . -type f \( -iname '*.html' -o -iname '*.htm' \) -print0)
         if [ "$(cat robots.txt)" != "$(printf 'User-agent: *\nDisallow: /')" ]; then echo "::error::robots.txt is not the one this run wrote"; exit 1; fi
         if [ -e sitemap.xml ] || [ -e llms.txt ]; then echo "::error::sitemap.xml or llms.txt is still there"; exit 1; fi
@@ -117,8 +133,9 @@ jobs:
         if [ ! -f "$meta" ] || [ -L "$meta" ]; then echo "::error::the artifact has no preview-meta.json"; exit 1; fi
         number="$(jq -r '.pr_number | tostring' "$meta")"
         sha="$(jq -r '.head_sha | tostring' "$meta")"
-        if ! printf '%s' "$number" | grep -Eq '^[1-9][0-9]{0,9}$'; then echo "::error::pr_number must be a positive integer, not '$number'"; exit 1; fi
-        if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || [ "$sha" != "$RUN_HEAD_SHA" ]; then echo "::error::head_sha '$sha' is not the head commit of the build run ($RUN_HEAD_SHA)"; exit 1; fi
+        # The whole value is tested, not each line of it, and the error texts are fixed, so a value from the artifact cannot forge a workflow command.
+        if ! [[ "$number" =~ ^[1-9][0-9]{0,9}$ ]]; then echo "::error::pr_number in preview-meta.json is not a positive integer"; exit 1; fi
+        if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || [ "$sha" != "$RUN_HEAD_SHA" ]; then echo "::error::head_sha in preview-meta.json is not the head commit of the build run ($RUN_HEAD_SHA)"; exit 1; fi
         rm "$meta"
         echo "number=$number" >> "$GITHUB_OUTPUT"
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
@@ -147,20 +164,22 @@ jobs:
         fi
         echo "open=true" >> "$GITHUB_OUTPUT"
 
-    - name: Create the app token
+    # Each token is narrowed to one repository and one permission: the app's permissions apply to every repository it is installed on, and this run never needs to write this repository's code.
+    - name: Create the app token for the preview repository
       if: steps.config.outputs.configured == 'true' && steps.state.outputs.open == 'true'
-      id: token
+      id: push-token
       uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
       with:
         app-id: ${{ vars.AUTOMATION_APP_ID }}
         private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
         owner: ${{ steps.config.outputs.owner }}
-        repositories: ${{ steps.config.outputs.name }},${{ github.event.repository.name }}
+        repositories: ${{ steps.config.outputs.name }}
+        permission-contents: write
 
     - name: Publish pr-<N>/ to the preview repository
       if: steps.config.outputs.configured == 'true' && steps.state.outputs.open == 'true'
       env:
-        GH_TOKEN: ${{ steps.token.outputs.token }}
+        GH_TOKEN: ${{ steps.push-token.outputs.token }}
         TARGET: ${{ steps.config.outputs.repository }}
         PR_NUMBER: ${{ steps.pr.outputs.number }}
         HEAD_SHA: ${{ steps.pr.outputs.sha }}
@@ -181,7 +200,7 @@ jobs:
         cp -R ../preview/. "pr-$PR_NUMBER/"
         # A symlink could point outside pr-<N>/, and Pages would serve what it points to; only regular files and folders are committed.
         odd="$(find "pr-$PR_NUMBER" ! -type f ! -type d)"
-        if [ -n "$odd" ]; then echo "::error::the copied preview holds paths that are not regular files or folders: $(printf '%s' "$odd" | tr '\n' ' ')"; exit 1; fi
+        if [ -n "$odd" ]; then echo "::error::the copied preview holds paths that are not regular files or folders"; exit 1; fi
         git add -A "pr-$PR_NUMBER"
         if git diff --cached --quiet; then echo "pr-$PR_NUMBER/ is already this build"; exit 0; fi
         git commit -q -m "Preview of $REPOSITORY#$PR_NUMBER at $HEAD_SHA"
@@ -193,12 +212,23 @@ jobs:
         echo "::error::could not push pr-$PR_NUMBER/ after 3 attempts"
         exit 1
 
+    - name: Create the app token for the pull request comment
+      if: steps.config.outputs.configured == 'true' && steps.state.outputs.open == 'true'
+      id: comment-token
+      uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      with:
+        app-id: ${{ vars.AUTOMATION_APP_ID }}
+        private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+        repositories: ${{ github.event.repository.name }}
+        permission-pull-requests: write
+
     # One comment per pull request, found by its hidden marker among the app's own comments and updated on every push. The REST API posts to the base repository's issue thread, which works for a pull request from a fork too.
     - name: Comment the preview address on the pull request
       if: steps.config.outputs.configured == 'true' && steps.state.outputs.open == 'true'
       env:
-        GH_TOKEN: ${{ steps.token.outputs.token }}
-        APP_SLUG: ${{ steps.token.outputs.app-slug }}
+        GH_TOKEN: ${{ steps.comment-token.outputs.token }}
+        APP_SLUG: ${{ steps.comment-token.outputs.app-slug }}
         PR_NUMBER: ${{ steps.pr.outputs.number }}
         HEAD_SHA: ${{ steps.pr.outputs.sha }}
         OWNER: ${{ steps.config.outputs.owner }}
@@ -208,7 +238,7 @@ jobs:
         set -euo pipefail
         marker='<!-- frontx-showcase-preview -->'
         url="https://$OWNER.github.io/$NAME/pr-$PR_NUMBER/"
-        body="$(printf '%s\n**Preview:** %s\n\nBuilt from %s. Pages may take a few minutes to serve a new build. The preview is not indexed; it is removed when this pull request closes, or after %s days without a new build.' "$marker" "$url" "$HEAD_SHA" "$RETENTION")"
+        body="$(printf '%s\n**Preview:** %s\n\nBuilt from %s. Pages may take a few minutes to serve a new build. The preview is not indexed; it is removed when this pull request closes, or after %s days without a new build. The Markdown copies of the pages are not published in a preview.' "$marker" "$url" "$HEAD_SHA" "$RETENTION")"
         bot="${APP_SLUG}[bot]"
         existing="$(gh api --paginate "/repos/$REPOSITORY/issues/$PR_NUMBER/comments" --jq ".[] | select(.user.login == \"$bot\" and (.body | contains(\"$marker\"))) | .id" | sed -n 1p)"
         if [ -n "$existing" ]; then
