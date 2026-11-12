@@ -85,6 +85,19 @@ describe('isFresh', () => {
     expect(isFresh(where('http://localhost:3000'))).toBe(true);
   });
 
+  it('is stale when the build baked in another indexing mode, and reads a stamp with no mode as on', () => {
+    expect(isFresh({ ...where(), indexing: 'on' })).toBe(true);
+    build(BUILT, { ...env, SITE_INDEXING: 'off' });
+    expect(JSON.parse(readFileSync(stampPath(), 'utf8')).indexing).toBe('off');
+    expect(isFresh(where())).toBe(false);
+    expect(isFresh({ ...where(), indexing: 'off' })).toBe(true);
+    const { origin, digest } = JSON.parse(readFileSync(stampPath(), 'utf8'));
+    writeFileSync(stampPath(), JSON.stringify({ origin, digest }));
+    utimesSync(stampPath(), BUILT, BUILT);
+    expect(isFresh(where())).toBe(true);
+    expect(isFresh({ ...where(), indexing: 'off' })).toBe(false);
+  });
+
   it('refuses to close the stamp with no build in progress', () => {
     expect(stamp('end', { root, env })).toMatch(/no pending stamp/);
   });

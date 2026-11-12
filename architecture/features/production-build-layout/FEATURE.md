@@ -166,14 +166,14 @@ Temporary: remove once FrontX templates share the UI kit across MFEs and the bui
 **Use case**: `cpt-site-usecase-change-screen`
 
 **Success Scenarios**:
-- The first `npm start` installs the site when it has no finished install from its current lockfile, builds it, then serves `site/dist/` as `cpt-site-flow-production-build-layout-serve-dist` does; a later start with no input changed and the same origin serves at once.
+- The first `npm start` installs the site when it has no finished install from its current lockfile, builds it, then serves `site/dist/` as `cpt-site-flow-production-build-layout-serve-dist` does; a later start with no input changed, the same origin and the same indexing mode serves at once.
 
 **Error Scenarios**:
 - `PORT` is not an integer from 0 to 65535: the command says so and exits with a failure before installing or building anything.
 - `npm run setup` or `npm run build` fails or is stopped by a signal: the command prints which one and why and exits with its failure; a setup leaves no mark and a build that started leaves no stamp, so the next start runs it again; a build refused at its stamp step keeps the last stamp (step 1), as nothing the stamp describes changed.
 
 **Steps**:
-1. [x] - `p2` - **IF** started with `--stamp-begin` (the step of `npm run build` after the composition), refuse a `site.config.json` it cannot read or a `PORT` step 2 refuses, keeping the last stamp, then remove `site/.dist-stamp`, so a build that stops midway is never fresh, and write a pending stamp with the origin the build bakes in, by the rule of step 5, and the digest of the input files; **IF** started with `--stamp` (its last step), refuse without a pending stamp or `site/dist/index.html`, and otherwise rename the pending stamp to `site/.dist-stamp`, keeping its time, the build's start; both live outside `site/dist/`, so they are never served; **IF** started with `--setup-done` (the last step of `npm run setup`), write the digest of `site/package-lock.json` into `site/node_modules`; then stop - `inst-stamp`
+1. [x] - `p2` - **IF** started with `--stamp-begin` (the step of `npm run build` after the composition), refuse a `site.config.json` it cannot read or a `PORT` step 2 refuses, keeping the last stamp, then remove `site/.dist-stamp`, so a build that stops midway is never fresh, and write a pending stamp with the origin the build bakes in, by the rule of step 5, its indexing mode (`SITE_INDEXING`, `on` when unset) and the digest of the input files; **IF** started with `--stamp` (its last step), refuse without a pending stamp or `site/dist/index.html`, and otherwise rename the pending stamp to `site/.dist-stamp`, keeping its time, the build's start; both live outside `site/dist/`, so they are never served; **IF** started with `--setup-done` (the last step of `npm run setup`), write the digest of `site/package-lock.json` into `site/node_modules`; then stop - `inst-stamp`
 2. [x] - `p2` - **IF** `PORT` is not an integer from 0 to 65535, exit with a failure - `inst-port`
 3. [x] - `p2` - **IF** started with `--no-build` or `START_SKIP_BUILD=1`, go to step 7 - `inst-if-skip`
 4. [x] - `p2` - **IF** `site/node_modules` carries no mark of a finished setup, or one from another lockfile, run `npm run setup`, whose `npm ci --include=dev` installs the site's devDependencies (its build tools) under `NODE_ENV=production` too - `inst-setup`
@@ -234,14 +234,14 @@ Temporary: remove once FrontX templates share the UI kit across MFEs and the bui
 
 - [x] `p2` - **ID**: `cpt-site-algo-production-build-layout-dist-fresh`
 
-**Input**: `site/dist/`, the stamp `site/.dist-stamp`, the origin the build is for, and the build inputs: every template (a folder with `frontx-template.json`), `site.config.json`, the root `package.json`, `package-lock.json`, `scripts/` and `assets/`, and the whole of `site/`.
+**Input**: `site/dist/`, the stamp `site/.dist-stamp`, the origin and the indexing mode the build is for, and the build inputs: every template (a folder with `frontx-template.json`), `site.config.json`, the root `package.json`, `package-lock.json`, `scripts/` and `assets/`, and the whole of `site/`.
 
 **Output**: Whether `site/dist/` can be served without a build.
 
 **Steps**:
 1. [x] - `p2` - **IF** `site/dist/index.html` is missing, it is not fresh - `inst-if-no-index`
 2. [x] - `p2` - Walk the inputs' files, counting a link below an input as a file without following it, skipping `node_modules`, `dist`, `dist-lib`, `@mf-types`, `coverage`, dot entries and `generated-mfe-manifests.json`, which the build writes, for their newest modification time and a digest of their paths with forward slashes; an unreadable folder counts as changed - `inst-scan`
-3. [x] - `p2` - It is fresh when the stamp is a record this script wrote, names the same origin and the same digest (no input file added, deleted or renamed), and no input file is newer than the stamp, the build's start - `inst-compare-stamp`
+3. [x] - `p2` - It is fresh when the stamp is a record this script wrote, names the same origin, the same indexing mode (a stamp with none counts as `on`) and the same digest (no input file added, deleted or renamed), and no input file is newer than the stamp, the build's start - `inst-compare-stamp`
 
 ### Resolve what the site publishes
 

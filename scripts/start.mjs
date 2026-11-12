@@ -84,15 +84,16 @@ function scanInputs(root, inputs) {
 }
 
 /**
- * The stamp's record, or null when it is missing or not a record this script wrote.
+ * The stamp's record, or null when it is missing or not a record this script wrote. A record with no indexing mode is from a build that predates `SITE_INDEXING` and counts as `on`.
  * @param {string} stamp
- * @returns {{ time: number, origin: string, digest: string } | null}
+ * @returns {{ time: number, origin: string, indexing: string, digest: string } | null}
  */
 function readStamp(stamp) {
   try {
     const record = JSON.parse(fs.readFileSync(stamp, 'utf8'));
     if (typeof record?.origin !== 'string' || typeof record?.digest !== 'string') return null;
-    return { time: fs.statSync(stamp).mtimeMs, origin: record.origin, digest: record.digest };
+    if (record.indexing !== undefined && typeof record.indexing !== 'string') return null;
+    return { time: fs.statSync(stamp).mtimeMs, origin: record.origin, indexing: record.indexing ?? 'on', digest: record.digest };
   } catch {
     return null;
   }
@@ -100,17 +101,17 @@ function readStamp(stamp) {
 
 // @cpt-algo:cpt-site-algo-production-build-layout-dist-fresh:p2
 /**
- * Whether `site/dist` can be served without a build: its `index.html` exists, and the stamp of the last finished build names the same origin, the same input files and a start no older than any input.
- * @param {{ root: string, origin: string }} where
+ * Whether `site/dist` can be served without a build: its `index.html` exists, and the stamp of the last finished build names the same origin, the same indexing mode, the same input files and a start no older than any input.
+ * @param {{ root: string, origin: string, indexing?: string }} where - `indexing` as `indexingMode` reads it, `on` when absent
  * @returns {boolean}
  */
-export function isFresh({ root, origin }) {
+export function isFresh({ root, origin, indexing = 'on' }) {
   // @cpt-begin:cpt-site-algo-production-build-layout-dist-fresh:p2:inst-if-no-index
   if (!fs.existsSync(path.join(root, 'site', 'dist', 'index.html'))) return false;
   // @cpt-end:cpt-site-algo-production-build-layout-dist-fresh:p2:inst-if-no-index
   // @cpt-begin:cpt-site-algo-production-build-layout-dist-fresh:p2:inst-compare-stamp
   const record = readStamp(stampFile(root));
-  if (!record || record.origin !== origin) return false;
+  if (!record || record.origin !== origin || record.indexing !== indexing) return false;
   const { newest, digest } = scanInputs(root, buildInputs(root));
   return record.digest === digest && newest <= record.time;
   // @cpt-end:cpt-site-algo-production-build-layout-dist-fresh:p2:inst-compare-stamp
@@ -169,6 +170,17 @@ export function markSetup(site) {
 export function effectiveOrigin(env, configOrigin, port) {
   // @cpt-begin:cpt-site-flow-production-build-layout-start:p2:inst-build
   return env.SITE_ORIGIN?.trim() || configOrigin?.trim() || `http://localhost:${port}`;
+  // @cpt-end:cpt-site-flow-production-build-layout-start:p2:inst-build
+}
+
+/**
+ * The indexing mode a build bakes in: `SITE_INDEXING`, `on` when unset, as template-site-meta reads it. A value it refuses matches no stamp, so the build runs and fails there.
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string}
+ */
+export function indexingMode(env) {
+  // @cpt-begin:cpt-site-flow-production-build-layout-start:p2:inst-build
+  return env.SITE_INDEXING ?? 'on';
   // @cpt-end:cpt-site-flow-production-build-layout-start:p2:inst-build
 }
 
@@ -357,7 +369,7 @@ function readConfig(root) {
 }
 
 /**
- * `--stamp-begin`: refuse what `npm start` refuses (a `site.config.json` it cannot read, a PORT it rejects), keeping the last stamp; otherwise remove the last stamp, so a build that stops midway is never fresh, and open a pending one with the origin the build bakes in (the rule `npm start` checks with) and the digest of the input files.
+ * `--stamp-begin`: refuse what `npm start` refuses (a `site.config.json` it cannot read, a PORT it rejects), keeping the last stamp; otherwise remove the last stamp, so a build that stops midway is never fresh, and open a pending one with the origin and the indexing mode the build bakes in (the rules `npm start` checks with) and the digest of the input files.
  * `--stamp`: the build has finished; turn the pending stamp into the stamp, keeping its time, the build's start.
  * @param {'begin' | 'end'} step
  * @param {{ root: string, env: NodeJS.ProcessEnv }} where
@@ -377,7 +389,7 @@ export function stamp(step, { root, env }) {
     const origin = effectiveOrigin(env, config.origin, port);
     // Taken after site:assemble, so the files it writes are no newer than the stamp; the build itself writes none an input scan reads.
     const { digest } = scanInputs(root, buildInputs(root));
-    fs.writeFileSync(pending, JSON.stringify({ origin, digest }));
+    fs.writeFileSync(pending, JSON.stringify({ origin, indexing: indexingMode(env), digest }));
     return null;
   }
   if (!fs.existsSync(pending)) return 'start: --stamp without a build in progress (no pending stamp); run npm run build';
@@ -433,7 +445,7 @@ async function main() {
       return;
     }
     const origin = effectiveOrigin(process.env, config.origin, port);
-    if (isFresh({ root: ROOT, origin })) {
+    if (isFresh({ root: ROOT, origin, indexing: indexingMode(process.env) })) {
       console.log('start: site/dist is up to date');
     } else {
       const { env, notes } = buildEnv(process.env, { configOrigin: config.origin, port, memory: { constrained: process.constrainedMemory(), total: os.totalmem() } });
