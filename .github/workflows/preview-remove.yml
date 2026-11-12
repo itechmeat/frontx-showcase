@@ -9,8 +9,9 @@ on:
 permissions:
   contents: read
 
+# One group per pull request, so no publish of another pull request can replace this run while it waits. Overlapping pushes of other runs are handled by the 3 pull --rebase attempts; a publish of the same pull request that overlaps this run is handled by its open-state check.
 concurrency:
-  group: preview-publish
+  group: preview-remove-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:

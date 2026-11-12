@@ -56,7 +56,7 @@ jobs:
     - name: Check no page may be indexed
       run: node scripts/indexing-check.mjs unindexed
 
-    # Every open preview shares the Pages site of the preview repository, which GitHub limits to 1 GB; today a build is about 15 MB, and about 45 MB with every screen published.
+    # Every open preview shares the Pages site of the preview repository, which GitHub limits to 1 GB; today a build is about 15 MB, and about 45 MB with every screen published. This check is the early warning; a pull request can edit this file, so "Preview publish" enforces the same limit on the artifact.
     - name: Check the build size
       env:
         MAX_MB: 150

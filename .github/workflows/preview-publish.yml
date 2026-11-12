@@ -12,9 +12,9 @@ permissions:
   contents: read
   pull-requests: read
 
-# One publication at a time: two pull requests pushing to the preview repository at once would race.
+# One group per pull request, so a newer pending run replaces only an older pending publish of the same pull request. The number is read from the artifact later, so the key is the head repository and branch, which name one open pull request into main. Overlapping pushes of other runs are handled by the 3 pull --rebase attempts; a publish that overlaps a remove of the same pull request is handled by the open-state check below.
 concurrency:
-  group: preview-publish
+  group: preview-publish-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:
@@ -67,13 +67,18 @@ jobs:
         github-token: ${{ github.token }}
 
     # The same rules as `node scripts/indexing-check.mjs unindexed` in "Preview build", checked again here: that build ran the pull request's code, which a pull request can change, so only this file's own shell decides. Nothing from the artifact or the pull request runs.
+    # The size limit of "Preview build" is enforced here for the same reason: the preview repository's Pages site, 1 GB for every open preview, takes at most MAX_MB from one.
     - name: Check no page of the artifact may be indexed
       if: steps.config.outputs.configured == 'true'
+      env:
+        MAX_MB: 150
       run: |
         set -euo pipefail
         cd preview
         odd="$(find . ! -type f ! -type d)"
         if [ -n "$odd" ]; then echo "::error::the artifact holds paths that are not regular files or folders: $(printf '%s' "$odd" | tr '\n' ' ')"; exit 1; fi
+        size="$(du -sm . | cut -f1)"
+        if [ "$size" -gt "$MAX_MB" ]; then echo "::error::the artifact is $size MB, over the $MAX_MB MB a preview may take"; exit 1; fi
         failed=0
         fail() { echo "::error::$1"; failed=1; }
         if [ ! -f robots.txt ] || [ "$(cat robots.txt)" != "$(printf 'User-agent: *\nDisallow: /')" ]; then fail 'robots.txt is not "User-agent: *" and "Disallow: /"'; fi
